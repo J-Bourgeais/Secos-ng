@@ -38,4 +38,9 @@ void print_gdt_content(gdt_reg_t gdtr_ptr) {
 
 void tp() {
 	// TODO
+  gdt_reg_t gdtr;
+  get_gdtr(gdtr); //asm volatile ("sgdt %0" : "=m"(gdtr));
+  print_gdt_content(gdtr);
+  
+
 }
