@@ -9,6 +9,47 @@ extern info_t   *info;
 extern uint32_t __kernel_start__;
 extern uint32_t __kernel_end__;
 
+
+void test_memory_access() {
+    multiboot_memory_map_t* entry = (multiboot_memory_map_t*)info->mbi->mmap_addr;
+    uint32_t mmap_end = info->mbi->mmap_addr + info->mbi->mmap_length;
+
+    uint32_t available_addr = 0;
+    uint32_t reserved_addr  = 0;
+
+    while ((uint32_t)entry < mmap_end) {
+        if (entry->type == MULTIBOOT_MEMORY_AVAILABLE && available_addr == 0) {
+            available_addr = entry->addr;
+        } else if (entry->type == MULTIBOOT_MEMORY_RESERVED && reserved_addr == 0) {
+            reserved_addr = entry->addr;
+        }
+
+        entry = (multiboot_memory_map_t*)
+                ((uint32_t)entry + entry->size + sizeof(entry->size));
+    }
+
+    if (available_addr) {
+        int *ptr_in_available_mem = (int*)available_addr;
+        debug("Available mem (%p): before: 0x%x\n", ptr_in_available_mem, *ptr_in_available_mem);
+        *ptr_in_available_mem = 0xaaaaaaaa;
+        debug("Available mem after write: 0x%x\n", *ptr_in_available_mem);
+	debug("see directly in available_addr :0x%x\n", *(int*)available_addr);
+    }
+
+    if (reserved_addr) {
+        int *ptr_in_reserved_mem = (int*)reserved_addr;
+        debug("Reserved mem (%p): before: 0x%x\n", ptr_in_reserved_mem, *ptr_in_reserved_mem);
+        *ptr_in_reserved_mem = 0xaaaaaaaa; 
+        debug("Reserved mem after write: 0x%x\n", *ptr_in_reserved_mem);
+	debug("see directly in reserved_addr : 0x%x\n", *(int*)reserved_addr);
+    }
+
+    //On peut ecrire dans la reserved memory
+    //normal ou pas ???
+}
+
+
+
 void tp() {
    debug("kernel mem [0x%p - 0x%p]\n", &__kernel_start__, &__kernel_end__);
    debug("MBI flags 0x%x\n", info->mbi->flags);
@@ -61,4 +102,5 @@ void tp() {
       //entry = (multiboot_memory_map_t*)
       // ((uint32_t)entry + (uint32_t)entry->size + sizeof(entry->size));
    }
+   test_memory_access();
 }
