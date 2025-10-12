@@ -39,7 +39,7 @@ void tp() {
    	//asm volatile ("sldt %0"::"m"(aLocation):"memory")
 	printf(get_ldtr());
 	//Q3 : 
-	//Je ne sais pas ce qu'il faut modifier. intr.h ligne 50 ??
+	//Je ne sais pas ce qu'il faut modifier. intr.h ligne 50 ou 119 ??
 	// TODO call bp_trigger
    bp_trigger();
 }
