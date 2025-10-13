@@ -1,45 +1,76 @@
 /* GPLv2 (c) Airbus */
 #include <debug.h>
+#include <intr.h>
 
 void bp_handler() {
-   
-   uint32_t val;
-   asm volatile ("mov 4(%%ebp), %0":"=r"(val));
-   //Ce que le CPU ne sauvegarde pas automatiquement et qu’il faut sauvegarder manuellement = les registres généraux et de segment.
-   __asm__ volatile (
-        "pushal\n\t"        // Sauvegarde tous les registres généraux (EAX, EBX, ECX, EDX, ESI, EDI, EBP, ESP)
-        "push %ds\n\t"      // Sauvegarde des registres de segment
-        "push %es\n\t"
-        "push %fs\n\t"
-        "push %gs\n\t"
-    );
-	printf("Breakpoint exception handled!\n");
+   // Q2
+   // debug("#BP handling\n");
+   // end Q2
 
-	__asm__ volatile (
-        "pop %gs\n\t"       // Restauration dans l’ordre inverse
-        "pop %fs\n\t"
-        "pop %es\n\t"
-        "pop %ds\n\t"
-        "popal\n\t"         // Restaure les registres généraux
-        "add $4, %esp\n\t"  // Nettoie le code d’erreur (si présent, ici #BP n’en a pas)
-        "iret\n\t"          // Retour d’interruption
-    );
+   // Q5
+    // L'implem à la façon Q2 se termine par un RET 
+    // Cela dépile la pile sous forme de "frame" de fonction
+    // Alors que la fonction a été appelée à l'arrivée d'une int
+    // ce qui n'est pas cohérent...
+    // end Q5
+    //il faudrait peut etre faire un iret plutot qu'un ret - J
+
+   // Q7
+   // uint32_t val;
+   // asm volatile ("mov 4(%%ebp), %0":"=r"(val));
+    // debug("EIP = %p\n", val);
+    // cette valeur est l'adresse dans bp_trigger
+    // qui suit l'instruction int3.
+   // end Q7
+
+   // Q8
+   // asm volatile ("pusha");
+   // debug("#BP handling\n");
+   // uint32_t eip;
+   // asm volatile ("mov 4(%%ebp), %0":"=r"(eip));
+   // debug("EIP = %p\n", eip);
+    // end Q8
+
+   // Q9: doit se terminer par l'instruction IRET :
+   asm volatile ("pusha");
+   debug("#BP handling\n");
+   uint32_t eip;
+   asm volatile ("mov 4(%%ebp), %0":"=r"(eip));
+   debug("EIP = %x\n", (unsigned int) eip);
+   asm volatile ("popa");
+   asm volatile ("leave; iret");
+    // end Q9
+
+    // Q11
+   // Dev en C rajoute les frames de fonction non désirées...
+    // end Q11
 }
 
 void bp_trigger() {
-	// TODO
-	printf("Déclenchement du breakpoint\n");
-    __asm__ volatile("int3");  // Déclenche #BP
+    // Q4
+    // asm volatile ("int3");
+    // end Q4
+
+    // Q10
+    asm volatile ("int3");
+    debug("after bp triggered\n");
+    // end Q10
 }
 
 void tp() {
-	//Q1
-	// TODO print idtr
-	//#define get_ldtr(aLocation)       \
-   	//asm volatile ("sldt %0"::"m"(aLocation):"memory")
-	printf(get_ldtr());
-	//Q3 : 
-	//Je ne sais pas ce qu'il faut modifier. intr.h ligne 50 ou 119 ??
-	// TODO call bp_trigger
+   // Q1
+   idt_reg_t idtr;
+   //dans intr.h
+   get_idtr(idtr);
+   debug("IDT @ 0x%x\n", (unsigned int) idtr.addr);
+   // end Q1
+   // Q3
+   //Modif direct ici, le but était de ne pas modifier intr_handler directement - J
+   int_desc_t *bp_dsc = &idtr.desc[3];
+   bp_dsc->offset_1 = (uint16_t)((uint32_t)bp_handler);
+   bp_dsc->offset_2 = (uint16_t)(((uint32_t)bp_handler)>>16);
+   // end Q3
+   // Q4
    bp_trigger();
+   // end Q4
 }
