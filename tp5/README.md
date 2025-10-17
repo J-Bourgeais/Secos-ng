@@ -42,16 +42,16 @@ void userland() {
 }
 ```
 
-**Q3\* : Pourquoi observe-t-on une #GP ? Corriger le problème de sorte qu'il
+**Q4\* : Pourquoi observe-t-on une #GP ? Corriger le problème de sorte qu'il
   soit autorisé d'appeler l'interruption "48" avec un RPL à 3.**
 
-**Q4\* : Modifier la fonction `syscall_handler()` pour qu'elle affiche une
+**Q5\* : Modifier la fonction `syscall_handler()` pour qu'elle affiche une
   chaîne de caractères dont l'adresse se trouve dans le registre "ESI". Nous
   venons de créer un appel système permettant d'afficher un message à l'écran
   et prenant son argument via "ESI". Essayer cet appel système depuis votre
   fonction `userland()`.**
 
-**Q5 : Quel problème de sécurité y a-t-il à l'implémentation de
+**Q6 : Quel problème de sécurité y a-t-il à l'implémentation de
   `syscall_handler()` ? Essayez de pirater ce service, depuis `userland
   ()`, afin de lire de la mémoire du noyau. Modifier le code de
   `syscall_handler` pour corriger ce problème.**
