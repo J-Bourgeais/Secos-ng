@@ -109,3 +109,25 @@ void tp() {
    );
    // end Q3
 }
+
+/*
+Résultatl : 
+
+
+
+
+l’exception se déclenche, et ton système essaie de la gérer.
+Stack trace apparaît.
+Message "fatal exception !" est affiché.
+
+La stack trace signifie que le système a tenté de capturer l’état de la pile au moment de l’exception, typiquement dans une routine d’exception
+
+0x302008 : probablement l'adresse de retour sauvegardée (EIP ou un pointeur d’appel).
+0xd43df0 : une adresse plus profonde dans la pile (un appel précédent).
+La fatalité ici signifie que le système n’a pas pu récupérer de cette exception :
+
+Ton #GP en ring 3 est bien captée par le CPU, qui tente de revenir en ring 0 grâce au TSS (tu l'as bien mis en place), mais :
+
+Il n'y a probablement pas de gestionnaire installé à l'entrée #13 de l'IDT, ou la routine d'exception n'implémente rien pour la rattraper proprement.
+
+*/
