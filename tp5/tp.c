@@ -10,13 +10,32 @@
 #define ts_idx  5
 
 #define c0_sel  gdt_krn_seg_sel(c0_idx)
-#define d0_sel  gdt_krn_seg_sel(d0_idx)
+#define d0_sel  ((uint16_t)gdt_krn_seg_sel(d0_idx))
 #define c3_sel  gdt_usr_seg_sel(c3_idx)
-#define d3_sel  gdt_usr_seg_sel(d3_idx)
+#define d3_sel  ((uint16_t)gdt_usr_seg_sel(d3_idx))
 #define ts_sel  gdt_krn_seg_sel(ts_idx)
 
 seg_desc_t GDT[6];
 tss_t      TSS;
+
+
+
+void userland() {
+    // TODO à compléter
+   //Q3: on test leur code --> Voir le résultat
+   /*uint32_t arg =  0x2023;
+   asm volatile ("int $48"::"a"(arg));
+   while(1);*/
+   const char *msg = "Bonjour depuis Ring 3\n";
+   asm volatile (
+      "mov %0, %%esi \n"
+      "int $48       \n"
+      :
+      : "r"(msg)
+      : "esi"
+   );
+   while (1);
+}
 
 #define gdt_flat_dsc(_dSc_,_pVl_,_tYp_)                                 \
    ({                                                                   \
@@ -70,10 +89,6 @@ void init_gdt() {
    set_gs(d0_sel);
 }
 
-void userland() {
-   debug("in userland : \\o/\n");
-   asm volatile ("mov %eax, %cr0");
-}
 
 void ring3() {
    init_gdt();
@@ -90,19 +105,7 @@ void ring3() {
    set_tr(ts_sel);
    //Pourquoi autant ? On fait pas juste comme le tp1 ?? - J
 
-   asm volatile (
-   "push %0    \n" // ss
-   "push %%ebp \n" // esp
-   "pushf      \n" // eflags
-   "push %1    \n" // cs
-   "push %2    \n" // eip
-
-   "iret"
-   ::
-    "i"(d3_sel),
-    "i"(c3_sel),
-    "r"(&userland)
-   );
+   
 }
 
 
@@ -119,16 +122,12 @@ void syscall_isr() {
 }
 
 void __regparm__(1) syscall_handler(int_ctx_t *ctx) {
-   debug("SYSCALL eax = %p\n", (void *) ctx->gpr.eax.raw);
+   const char *msg = (const char *) ctx->gpr.esi.raw;
+   debug("SYSCALL: msg = %s\n", msg);
+   
+   //debug("SYSCALL eax = %p\n", (void *) ctx->gpr.eax.raw);
 }
 
-void userland() {
-    // TODO à compléter
-   //Q3: on test leur code --> Voir le résultat
-   uint32_t arg =  0x2023;
-   asm volatile ("int $48"::"a"(arg));
-   while(1);
-}
 
 void tp() {
    ring3();
@@ -137,15 +136,55 @@ void tp() {
     //Q2 : mettre syscall_isr en réponse à l'interruption 48 - inspi tp2
    idt_reg_t idtr;//dans intr.h
    get_idtr(idtr);
-   int_desc_t *bp_dsc = &idtr.desc[3];
-   bp_dsc->offset_1 = (uint16_t)((uint32_t)syscall_isr);
-   bp_dsc->offset_2 = (uint16_t)(((uint32_t)syscall_isr)>>16);
 
+   int_desc_t *syscall_dsc = &idtr.desc[48];
+
+   syscall_dsc->offset_1 = (uint16_t)((uint32_t)syscall_isr);
+   syscall_dsc->offset_2 = (uint16_t)(((uint32_t)syscall_isr) >> 16);
+   syscall_dsc->p        = 1;        // présent
+   syscall_dsc->type     = 0xE;      // interrupteur 32 bits
    //Q4 :  Pourquoi observe-t-on une #GP ? Corriger le problème de sorte qu'il soit autorisé d'appeler l'interruption "48" avec un RPL à 3.
-   bp_dsc->dpl = 3; //dissonance des niveaux de privilège
+   syscall_dsc->dpl = 3; //dissonance des niveaux de privilège
 
 
+   
+   
 
+   asm volatile (
+   "push %0    \n" // ss
+   "push %%ebp \n" // esp
+   "pushf      \n" // eflags
+   "push %1    \n" // cs
+   "push %2    \n" // eip
+
+   "iret"
+   ::
+    "i"(d3_sel),
+    "i"(c3_sel),
+    "r"(&userland)
+   );
+
+
+   //Q6 : Problèmes de sécurité : Le processus ring 3 passe une adresse mémoire au noyau via ESI.
+   //Cette adresse peut pointer n’importe où, y compris en mémoire noyau.
+   //Le noyau va alors lire la mémoire sans vérifier l’origine → violation de sécurité.
+   //--> Peut afficher des données du noyau
+   //--> valider que le pointeur est en espace utilisateur
+
+   /* Exemple pour le mettre en place : (Il faut être sure des adresses)
+   #define USER_MEM_START 0x00000000
+#define USER_MEM_END   0xBFFFFFFF
+
+void __regparm__(1) syscall_handler(int_ctx_t *ctx) {
+   const char *msg = (const char *) ctx->gpr.esi.raw;
+
+   if ((uintptr_t)msg >= USER_MEM_START && (uintptr_t)msg < USER_MEM_END) {
+       debug("SYSCALL: msg = %s\n", msg);
+   } else {
+       debug("SYSCALL: invalid user pointer: %p\n", msg);
+   }
+}
+*/
 
 
 }
