@@ -69,6 +69,7 @@ void tp() {
    int_desc_t *bp_dsc = &idtr.desc[3];
    bp_dsc->offset_1 = (uint16_t)((uint32_t)bp_handler);
    bp_dsc->offset_2 = (uint16_t)(((uint32_t)bp_handler)>>16);
+   debug("bp_handler in intr_handler");
    // end Q3
    // Q4
    bp_trigger();
