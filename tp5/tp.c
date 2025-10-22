@@ -110,7 +110,7 @@ void ring3() {
 
 
 //Q5 : Modifier la fonction `syscall_handler()` pour qu'elle affiche une chaîne de caractères dont l'adresse se trouve dans le registre "ESI". 
-//Nous venons de créer un appel système permettant d'afficher un message à l'écran et prenant son argument via "ESI"
+//créer un appel système permettant d'afficher un message à l'écran et prenant son argument via "ESI"
 void syscall_isr() {
    asm volatile (
       "leave ; pusha        \n"
