@@ -42,6 +42,9 @@ mappé PGD/PTB dans l’espace virtuel (sinon plus de moyen d'y accéder)
 //Test
 	//Préparer au moins une entrée dans le PGD pour la PTB.**
     //Préparer plusieurs entrées dans la PTB.
+
+
+	//Use pg_set_entry cf pagemem.h 
 	pgd[0].p = 1; //présent
 	pgd[0].rw = 1; //lecture/écriture
 	pgd[0].addr = 0x601; //adresse de la PTB (0x601000 >> 12)
@@ -75,6 +78,7 @@ mappé PGD/PTB dans l’espace virtuel (sinon plus de moyen d'y accéder)
 	//pgb de 0x300 amene a 0x600000 car le pgd est à 0x600000
 	// PGD est à l'adresse physique 0x600000
 	// On veut y accéder via l'adresse virtuelle 0xc0000000
+	//But : addr(phy)0xc000000== addr(phy)0x600000==0x600000
 
 	pgd[0x300].p = 1;         // 0xc0000000 >> 22 = 0x300
 	pgd[0x300].rw = 1;
@@ -125,6 +129,10 @@ mappé PGD/PTB dans l’espace virtuel (sinon plus de moyen d'y accéder)
 	printf("str2 : %s\n", str2);
 	//A Tester
 
+
+	//1ere entrée : mappée de 0 à 43ff000
+	// Les TLB gardent tout en mémoire car pas de flush donc pas d'erreurs
+	//devrait en théorie lever une fate, a la prochain traduction d'adresse mais ducoup non
 	//Q9 : Effacer la première entrée du PGD
 	pgd[0].p = 0; //marquer comme non présent : vraiment effacé ?
 	//Tester l'accès aux adresses 0x700000 et 0x7ff000

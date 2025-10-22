@@ -21,11 +21,7 @@ tss_t      TSS;
 
 
 void userland() {
-    // TODO à compléter
-   //Q3: on test leur code --> Voir le résultat
-   /*uint32_t arg =  0x2023;
-   asm volatile ("int $48"::"a"(arg));
-   while(1);*/
+
    const char *msg = "Bonjour depuis Ring 3\n";
    asm volatile (
       "mov %0, %%esi \n"
@@ -163,6 +159,9 @@ void tp() {
     "r"(&userland)
    );
 
+//Si on accède direct a la mémoire noyau depuis le ring3, on a une violation de sécurité
+//Mais si on passe par notre appel mémoire, ca marche car autorisations ring0
+//Vérifier que c'est ok d'aller chercher cette adresse avant de le faire
 
    //Q6 : Problèmes de sécurité : Le processus ring 3 passe une adresse mémoire au noyau via ESI.
    //Cette adresse peut pointer n’importe où, y compris en mémoire noyau.
@@ -172,7 +171,7 @@ void tp() {
 
    /* Exemple pour le mettre en place : (Il faut être sure des adresses)
    #define USER_MEM_START 0x00000000
-#define USER_MEM_END   0xBFFFFFFF
+   #define USER_MEM_END   0xBFFFFFFF
 
 void __regparm__(1) syscall_handler(int_ctx_t *ctx) {
    const char *msg = (const char *) ctx->gpr.esi.raw;

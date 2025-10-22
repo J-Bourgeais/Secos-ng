@@ -97,8 +97,8 @@ void tp() {
    "push %0    \n" // ss
    "push %%ebp \n" // esp
    "pushf      \n" // eflags
-   "push %1    \n" // cs
-   "push %2    \n" // eip
+   "push %1    \n" // cs --> c3_sel
+   "push %2    \n" // eip --> userland
    // end Q2
    // Q3
    "iret"
@@ -111,9 +111,7 @@ void tp() {
 }
 
 /*
-Résultatl : 
-
-
+Analyse du Résultat par chatty: 
 
 
 l’exception se déclenche, et ton système essaie de la gérer.
