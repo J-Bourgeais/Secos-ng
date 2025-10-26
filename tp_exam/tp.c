@@ -22,6 +22,18 @@
 #define IRQ0 32
 #define SYSCALL_INT 0x80
 
+
+/*
+Une erreur est générée. 
+Ca compile avec make, mais quand je fais make qemu, ca donne ca :
+ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion failed: (!qemu)
+Bail out! ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion fail)
+make: *** [../utils/rules.mk:58: qemu] Abandon (core dump créé)
+*/
+
+
+
+
 //Besoin ou pas ? Selon les fichiers fournis
 typedef struct task {
     uint32_t *pgd;         // Page directory
@@ -34,6 +46,17 @@ typedef struct task {
 //Définir les taches 1 et 2
 task_t task1, task2;
 task_t *current_task;
+
+//Interface utilisateur pour l'appel système
+void sys_counter(uint32_t *c) { //L'argument est une adresse virtuelle ring 3
+   asm volatile (
+	  "mov %0, %%esi \n" //mettre l'argument dans ESI
+	  "int $80        \n" //appel système 80
+	  :
+	  : "r"(c)
+	  : "%esi"
+   );
+}
 
 
 __attribute__((section(".user")))
@@ -64,9 +87,13 @@ void switch_to(task_t *task) {
     );
 }
 
+void save_context(task_t *task){
+    asm volatile ("mov %%esp, %0" : "=r"(task->esp0));
+}
+
 //Gestionnaire d'interruption
 void irq0_handler() {
-	//Definir current_task et task1 et task2
+	//Definir la fonction save_context selon ce dont on a besoin dans ce tp
     save_context(current_task); // sauvegarde esp0
     current_task = (current_task == &task1) ? &task2 : &task1;
     switch_to(current_task);    // restaure esp0 et fait iret
@@ -79,21 +106,12 @@ void irq0_isr() {
 }
 
 
-//Interface utilisateur pour l'appel système
-void sys_counter(uint32_t *c) { //L'argument est une adresse virtuelle ring 3
-   asm volatile (
-	  "mov %0, %%esi \n" //mettre l'argument dans ESI
-	  "int $80        \n" //appel système 80
-	  :
-	  : "r"(c)
-	  : "%esi"
-   );
-}
+
 
 //interface noyau pour l'appel système
 void syscall_handler(int_ctx_t *ctx) {
     uint32_t *counter = (uint32_t*)ctx->gpr.esi.raw;
-    if (&counter >= 0x400000 && &counter < 0xBFFFFFFF) { //&counter ou (void*)counter ??
+    if (*counter >= 0x400000 && *counter < 0xBFFFFFFF) { //&counter ou (void*)counter ??
 		(*counter)++;
         debug("Counter = %d\n", *counter);
     } else {
@@ -154,6 +172,10 @@ void init_task(task_t *task, uint32_t pgd_phys, uint32_t code_phys, uint32_t use
     task->esp0 = stack;
 }
 
+static inline void sti(){
+    asm volatile ("sti");
+}
+
 
 void tp() {
 	// TODO
@@ -183,7 +205,7 @@ void tp() {
     uint32_t cr0 = get_cr0();
     set_cr0(cr0 | 0x80000000);
 
-    sti();
+    sti(); //set interrupt flag --> a definir
     while (1);
 	
 }
