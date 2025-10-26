@@ -2,5 +2,6 @@
 #include <debug.h>
 
 void tp() {
-	// TODO
+	// TODO le readme tp_exam
+	
 }
