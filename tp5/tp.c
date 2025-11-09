@@ -1,8 +1,26 @@
 /* GPLv2 (c) Airbus */
 #include <debug.h>
+
+#include <segmem.h>
+#include <string.h>
+
 #include <intr.h>
 
-//Q1 : reprendre tp3
+void syscall_isr() {
+   asm volatile (
+      "leave ; pusha        \n"
+      "mov %esp, %eax      \n"
+      "call syscall_handler \n"
+      "popa ; iret"
+      );
+}
+
+void __regparm__(1) syscall_handler(int_ctx_t *ctx) {
+      debug("SYSCALL eax = %p\n", (void *) ctx->gpr.eax.raw);
+   // Q4
+   debug("print syscall: %s", (char *)ctx->gpr.esi.raw);
+   // end Q4
+}
 #define c0_idx  1
 #define d0_idx  2
 #define c3_idx  3
@@ -10,28 +28,13 @@
 #define ts_idx  5
 
 #define c0_sel  gdt_krn_seg_sel(c0_idx)
-#define d0_sel  ((uint16_t)gdt_krn_seg_sel(d0_idx))
+#define d0_sel  gdt_krn_seg_sel(d0_idx)
 #define c3_sel  gdt_usr_seg_sel(c3_idx)
-#define d3_sel  ((uint16_t)gdt_usr_seg_sel(d3_idx))
+#define d3_sel  gdt_usr_seg_sel(d3_idx)
 #define ts_sel  gdt_krn_seg_sel(ts_idx)
 
 seg_desc_t GDT[6];
 tss_t      TSS;
-
-
-
-void userland() {
-
-   const char *msg = "Bonjour depuis Ring 3\n";
-   asm volatile (
-      "mov %0, %%esi \n"
-      "int $48       \n"
-      :
-      : "r"(msg)
-      : "esi"
-   );
-   while (1);
-}
 
 #define gdt_flat_dsc(_dSc_,_pVl_,_tYp_)                                 \
    ({                                                                   \
@@ -65,7 +68,7 @@ void userland() {
 void init_gdt() {
    gdt_reg_t gdtr;
 
-   GDT[0].raw = 0ULL; //no field raw ??? c'est le code de la prof ?
+   GDT[0].raw = 0ULL;
 
    c0_dsc( &GDT[c0_idx] );
    d0_dsc( &GDT[d0_idx] );
@@ -85,104 +88,60 @@ void init_gdt() {
    set_gs(d0_sel);
 }
 
+void userland() {
+    // Q3
+    // uint32_t arg =  0x2023;
+    // asm volatile ("int $48"::"a"(arg));
+    // end Q3
 
-void ring3() {
-   init_gdt();
-   set_ds(d3_sel);
-   set_es(d3_sel);
-   set_fs(d3_sel);
-   set_gs(d3_sel);
-   // Note: TSS is needed for the "kernel stack"
-   // when returning from ring 3 to ring 0
-   // during a next interrupt occurence
-   TSS.s0.esp = get_ebp();
-   TSS.s0.ss  = d0_sel;
-   tss_dsc(&GDT[ts_idx], (offset_t)&TSS);
-   set_tr(ts_sel);
-   //Pourquoi autant ? On fait pas juste comme le tp1 ?? - J
-
-   
+    // Q5
+    asm volatile ("int $48"::"S"(0x3048e0)); // 5 print secos-xxxx-xxxx !! (in the kernel memory !)
+    // 0x3048e0 deduced from kernel.elf, for example by coping the constant address 
+    // given as parameter of printf in start()
+    // end Q5
+    while(1);
 }
-
-
-//Q5 : Modifier la fonction `syscall_handler()` pour qu'elle affiche une chaîne de caractères dont l'adresse se trouve dans le registre "ESI". 
-//créer un appel système permettant d'afficher un message à l'écran et prenant son argument via "ESI"
-void syscall_isr() {
-   asm volatile (
-      "leave ; pusha        \n"
-      "mov %esp, %eax      \n"
-      "call syscall_handler \n"
-      "popa ; iret"
-      );
-}
-
-void __regparm__(1) syscall_handler(int_ctx_t *ctx) {
-   const char *msg = (const char *) ctx->gpr.esi.raw;
-   debug("SYSCALL: msg = %s\n", msg);
-   
-   //debug("SYSCALL eax = %p\n", (void *) ctx->gpr.eax.raw);
-}
-
 
 void tp() {
-   ring3();
-    // TODO
+    // Q1
+    init_gdt();
+    set_ds(d3_sel);
+    set_es(d3_sel);
+    set_fs(d3_sel);
+    set_gs(d3_sel);
+    TSS.s0.esp = get_ebp();
+    TSS.s0.ss  = d0_sel;
+    tss_dsc(&GDT[ts_idx], (offset_t)&TSS);
+    set_tr(ts_sel);
+    // end Q1
 
-    //Q2 : mettre syscall_isr en réponse à l'interruption 48 - inspi tp2
-   idt_reg_t idtr;//dans intr.h
-   get_idtr(idtr);
+    // Q2
+    int_desc_t *dsc;
+    idt_reg_t  idtr;
+    get_idtr(idtr);
+    dsc = &idtr.desc[48];
+    dsc->offset_1 = (uint16_t)((uint32_t)syscall_isr); // 3 install kernel syscall handler
+    dsc->offset_2 = (uint16_t)(((uint32_t)syscall_isr)>>16);
+    // end Q2 
 
-   int_desc_t *syscall_dsc = &idtr.desc[48];
+    // Q3
+    dsc->dpl = 3;
+    // end Q3
 
-   syscall_dsc->offset_1 = (uint16_t)((uint32_t)syscall_isr);
-   syscall_dsc->offset_2 = (uint16_t)(((uint32_t)syscall_isr) >> 16);
-   syscall_dsc->p        = 1;        // présent
-   syscall_dsc->type     = 0xE;      // interrupteur 32 bits
-   //Q4 :  Pourquoi observe-t-on une #GP ? Corriger le problème de sorte qu'il soit autorisé d'appeler l'interruption "48" avec un RPL à 3.
-   syscall_dsc->dpl = 3; //dissonance des niveaux de privilège
-
-
-   
-   
-
-   asm volatile (
-   "push %0    \n" // ss
-   "push %%ebp \n" // esp
-   "pushf      \n" // eflags
-   "push %1    \n" // cs
-   "push %2    \n" // eip
-
-   "iret"
-   ::
-    "i"(d3_sel),
-    "i"(c3_sel),
-    "r"(&userland)
-   );
-
-//Si on accède direct a la mémoire noyau depuis le ring3, on a une violation de sécurité
-//Mais si on passe par notre appel mémoire, ca marche car autorisations ring0
-//Vérifier que c'est ok d'aller chercher cette adresse avant de le faire
-
-   //Q6 : Problèmes de sécurité : Le processus ring 3 passe une adresse mémoire au noyau via ESI.
-   //Cette adresse peut pointer n’importe où, y compris en mémoire noyau.
-   //Le noyau va alors lire la mémoire sans vérifier l’origine → violation de sécurité.
-   //--> Peut afficher des données du noyau
-   //--> valider que le pointeur est en espace utilisateur
-
-   /* Exemple pour le mettre en place : (Il faut être sure des adresses)
-   #define USER_MEM_START 0x00000000
-   #define USER_MEM_END   0xBFFFFFFF
-
-void __regparm__(1) syscall_handler(int_ctx_t *ctx) {
-   const char *msg = (const char *) ctx->gpr.esi.raw;
-
-   if ((uintptr_t)msg >= USER_MEM_START && (uintptr_t)msg < USER_MEM_END) {
-       debug("SYSCALL: msg = %s\n", msg);
-   } else {
-       debug("SYSCALL: invalid user pointer: %p\n", msg);
-   }
-}
-*/
-
-
+   // common
+    uint32_t   ustack = 0x600000;
+    asm volatile (
+      "push %0 \n" // ss
+      "push %1 \n" // esp pour du ring 3 !
+      "pushf   \n" // eflags
+      "push %2 \n" // cs
+      "push %3 \n" // eip
+      "iret"
+      ::
+       "i"(d3_sel),
+       "m"(ustack),
+       "i"(c3_sel),
+       "r"(&userland)
+      );
+    // end common
 }
