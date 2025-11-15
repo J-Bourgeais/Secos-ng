@@ -28,10 +28,11 @@ void __regparm__(1) syscall_handler(int_ctx_t *ctx) {
 #define ts_idx  5
 
 #define c0_sel  gdt_krn_seg_sel(c0_idx)
-#define d0_sel  gdt_krn_seg_sel(d0_idx)
+#define d0_sel  ((uint16_t)gdt_krn_seg_sel(d0_idx))
 #define c3_sel  gdt_usr_seg_sel(c3_idx)
-#define d3_sel  gdt_usr_seg_sel(d3_idx)
+#define d3_sel  ((uint16_t)gdt_usr_seg_sel(d3_idx))
 #define ts_sel  gdt_krn_seg_sel(ts_idx)
+
 
 seg_desc_t GDT[6];
 tss_t      TSS;
