@@ -1,27 +1,34 @@
 /* GPLv2 (c) Airbus */
+
 #include <debug.h>
 #include <pagemem.h>
 #include <segmem.h>
 #include <intr.h>
 #include <string.h>
 #include <cr.h>
+#include <types.h>   /* pour offset_t / raw32_t / loc_t et setptr */
 
-#define USER1_PHYS 0x400000
-#define USER2_PHYS 0x800000
+/* Si disponibles dans ton projet, ces initialisations doivent être appelées avant sti() */
+extern void intr_init(void) __attribute__((weak));
+extern void pic_remap(void) __attribute__((weak));
+extern void pit_init(void) __attribute__((weak));
+
+/* Tes constantes originales, gardées */
+#define USER1_PHYS       0x400000
+#define USER2_PHYS       0x800000
 #define USER1_STACK_PHYS 0x401000
 #define USER2_STACK_PHYS 0x801000
 #define KERN1_STACK_PHYS 0x402000
 #define KERN2_STACK_PHYS 0x802000
-#define SHARED_PHYS 0x900000
-#define SHARED_VIRT_T1 0x500000
-#define SHARED_VIRT_T2 0xA00000
+#define SHARED_PHYS      0x900000
+#define SHARED_VIRT_T1   0x500000
+#define SHARED_VIRT_T2   0xA00000
 
-#define PGD1_PHYS 0xA100000
-#define PGD2_PHYS 0xA200000
+#define PGD1_PHYS        0xA100000
+#define PGD2_PHYS        0xA200000
 
-#define IRQ0 32
-#define SYSCALL_INT 0x80
-
+#define IRQ0             32
+#define SYSCALL_INT      0x80
 
 /*
 Une erreur est générée. 
@@ -29,12 +36,43 @@ Ca compile avec make, mais quand je fais make qemu, ca donne ca :
 ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion failed: (!qemu)
 Bail out! ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion fail)
 make: *** [../utils/rules.mk:58: qemu] Abandon (core dump créé)
+
+--> cette erreur revient de temps en temps, mais actuellement j'ai ca : 
+
+secos-90d71e4-6fe44f8 (c) Airbus
+
+IDT event
+ . int    #13
+ . error  0x28
+ . cs:eip 0x8:0x304852
+ . ss:esp 0x301fe4:0x304fbc
+ . eflags 0x12
+
+- GPR
+eax     : 0x28
+ecx     : 0x5f
+edx     : 0x0
+ebx     : 0x2be40
+esp     : 0x301f9c
+ebp     : 0x301fe8
+esi     : 0x2bfda
+edi     : 0x2bfdb
+
+Exception: General protection
+#GP details: ext:0 idt:0 ti:0 index:5
+cr0 = 0x11
+cr4 = 0x0
+
+-= Stack Trace =-
+0x30305a
+0x303020
+0x8c85
+0x72bf0000
+fatal exception !
 */
 
 
-
-
-//Besoin ou pas ? Selon les fichiers fournis
+/* Contexte des tâches */
 typedef struct task {
     uint32_t *pgd;         // Page directory
     uint32_t *esp0;        // Pile noyau (haut de pile)
@@ -47,17 +85,61 @@ typedef struct task {
 task_t task1, task2;
 task_t *current_task;
 
-//Interface utilisateur pour l'appel système
-void sys_counter(uint32_t *c) { //L'argument est une adresse virtuelle ring 3
+/* Sélecteurs GDT*/
+#define KRN_CS_SEL gdt_krn_seg_sel(1)
+#define KRN_DS_SEL gdt_krn_seg_sel(2)
+#define USR_CS_SEL gdt_usr_seg_sel(3)
+#define USR_DS_SEL gdt_usr_seg_sel(4)
+
+/* Indice TSS ; on suppose que l’entrée TSS est index 5 */
+#define TSS_IDX    5
+#define TSS_SEL    gdt_krn_seg_sel(TSS_IDX)
+
+/* TSS global (pour basculer pile noyau lors des IRQ depuis ring 3) */
+static tss_t TSS;
+
+/* Helpers: mise à jour de la pile noyau dans le TSS */
+static inline void tss_set_kernel_stack(uint32_t esp0) {
+    TSS.s0.esp = esp0;
+    TSS.s0.ss  = KRN_DS_SEL;
+}
+
+/* Helper: construire un descripteur TSS dans la GDT */
+static inline void tss_dsc(seg_desc_t *dsc, offset_t tss_addr) {
+    memset(dsc, 0, sizeof(*dsc));
+    raw32_t addr = {.raw = (uint32_t)tss_addr};
+    uint32_t limit = sizeof(tss_t) - 1;
+
+    dsc->limit_1 = (uint16_t)(limit & 0xFFFF);
+    dsc->limit_2 = (uint8_t)((limit >> 16) & 0x0F);
+
+    dsc->base_1 = addr.wlow;
+    dsc->base_2 = addr._whigh.blow;
+    dsc->base_3 = addr._whigh.bhigh;
+
+    dsc->type   = SEG_DESC_SYS_TSS_AVL_32;  // 0x9
+    dsc->s      = 0;                        // descripteur système
+    dsc->dpl    = 0;
+    dsc->p      = 1;
+
+    dsc->avl    = 0;
+    dsc->l      = 0;
+    dsc->d      = 0;                        // non applicable ici
+    dsc->g      = 0;                        // limite en octets
+}
+
+/* Interface utilisateur pour l'appel système */
+void sys_counter(uint32_t *c) {
    asm volatile (
-	  "mov %0, %%esi \n" //mettre l'argument dans ESI
-	  "int $80        \n" //appel système 80
-	  :
-	  : "r"(c)
-	  : "%esi"
+      "mov %0, %%esi \n"
+      "int $80        \n"
+      :
+      : "r"(c)
+      : "%esi"
    );
 }
 
+/* Code user (section .user)*/
 
 __attribute__((section(".user")))
 void user1() {
@@ -75,137 +157,251 @@ void user2() {
     }
 }
 
-//gestion de changement de tache
-void switch_to(task_t *task) {
-    set_cr3((uint32_t)task->pgd);
+/* Stubs ISR */
+void irq0_isr();
+void syscall_isr();
+
+void irq0_handler(int_ctx_t *ctx);
+void syscall_handler(int_ctx_t *ctx);
+
+__attribute__((naked)) void irq0_isr() {
     asm volatile (
-        "mov %0, %%esp\n"
-        "popa; add $8, %%esp\n"
-        "iret\n"
-        :
-        : "r"(task->esp0)
+        "cli               \n"
+        "pushl %ds         \n"
+        "pushl %es         \n"
+        "pushl %fs         \n"
+        "pushl %gs         \n"
+        "pusha             \n"
+        "movl %esp, %eax   \n"
+        "pushl %eax        \n"
+        "call irq0_handler \n"
+        "addl $4, %esp     \n"
+        "popa              \n"
+        "popl %gs          \n"
+        "popl %fs          \n"
+        "popl %es          \n"
+        "popl %ds          \n"
+        "sti               \n"
+        "iret              \n"
     );
 }
 
-void save_context(task_t *task){
-    asm volatile ("mov %%esp, %0" : "=r"(task->esp0));
-}
-
-//Gestionnaire d'interruption
-void irq0_handler() {
-	//Definir la fonction save_context selon ce dont on a besoin dans ce tp
-    save_context(current_task); // sauvegarde esp0
-    current_task = (current_task == &task1) ? &task2 : &task1;
-    switch_to(current_task);    // restaure esp0 et fait iret
-}
-
-void irq0_isr() {
+__attribute__((naked)) void syscall_isr() {
     asm volatile (
-        "cli; call irq0_handler\n"
+        "cli                 \n"
+        "pushl %ds           \n"
+        "pushl %es           \n"
+        "pushl %fs           \n"
+        "pushl %gs           \n"
+        "pusha               \n"
+        "movl %esp, %eax     \n"
+        "pushl %eax          \n"
+        "call syscall_handler\n"
+        "addl $4, %esp       \n"
+        "popa                \n"
+        "popl %gs            \n"
+        "popl %fs            \n"
+        "popl %es            \n"
+        "popl %ds            \n"
+        "sti                 \n"
+        "iret                \n"
     );
 }
 
-
-
-
-//interface noyau pour l'appel système
 void syscall_handler(int_ctx_t *ctx) {
     uint32_t *counter = (uint32_t*)ctx->gpr.esi.raw;
-    if (*counter >= 0x400000 && *counter < 0xBFFFFFFF) { //&counter ou (void*)counter ??
-		(*counter)++;
-        debug("Counter = %d\n", *counter);
-    } else {
-        debug("Invalid pointer: %p\n", counter);
-    }
+    uint32_t val = *counter;
+    val++;
+    *counter = val;
+    debug("Counter = %u\n", val);
 }
 
-//Voir a quoi ca sert
-void syscall_isr() {
-    asm volatile (
-        "leave; pusha\n"
-        "mov %esp, %eax\n"
-        "call syscall_handler\n"
-        "popa; iret\n"
-    );
-}
+/*  Mapping  */
 
-void map_identity(pde32_t *pgd, uint32_t phys_start, uint32_t virt_start) {
-    pte32_t *ptb = (pte32_t*)(phys_start + 0x1000);
-    pgd[pd32_get_idx(virt_start)].p = 1;
-    pgd[pd32_get_idx(virt_start)].rw = 1;
-    pgd[pd32_get_idx(virt_start)].addr = ((uint32_t)ptb) >> 12;
+#define PT1_CODE_PHYS   (PGD1_PHYS + 0x001000)
+#define PT1_SHRD_PHYS   (PGD1_PHYS + 0x002000)
+#define PT1_KERN_BASE   (PGD1_PHYS + 0x003000)
 
+#define PT2_CODE_PHYS   (PGD2_PHYS + 0x001000)
+#define PT2_SHRD_PHYS   (PGD2_PHYS + 0x002000)
+#define PT2_KERN_BASE   (PGD2_PHYS + 0x003000)
+
+static void map_4MB_identity_user(pde32_t *pgd, uint32_t virt_base, uint32_t pt_phys) {
+    pte32_t *pt = (pte32_t*)pt_phys;
+    __clear_page(pt);
+    pg_set_entry(&pgd[pd32_get_idx(virt_base)], PG_USR | PG_RW, page_get_nr(pt_phys));
+    uint32_t base4m = virt_base & ~((1u << PG_4M_SHIFT) - 1);
     for (int i = 0; i < 1024; i++) {
-        ptb[i].p = 1;
-        ptb[i].rw = 1;
-        ptb[i].addr = i;
+        uint32_t phys = base4m + (i << PAGE_SHIFT);
+        pg_set_entry(&pt[i], PG_USR | PG_RW, page_get_nr(phys));
     }
 }
 
-void map_shared(pde32_t *pgd, uint32_t virt, uint32_t phys) {
-    pte32_t *ptb = (pte32_t*)(phys + 0x1000);
-    pgd[pd32_get_idx(virt)].p = 1;
-    pgd[pd32_get_idx(virt)].rw = 1;
-    pgd[pd32_get_idx(virt)].addr = ((uint32_t)ptb) >> 12;
-
-    ptb[pt32_get_idx(virt)].p = 1;
-    ptb[pt32_get_idx(virt)].rw = 1;
-    ptb[pt32_get_idx(virt)].addr = phys >> 12;
+static void map_shared_page_user(pde32_t *pgd, uint32_t virt, uint32_t pt_phys, uint32_t shared_phys) {
+    pte32_t *pt = (pte32_t*)pt_phys;
+    __clear_page(pt);
+    pg_set_entry(&pgd[pd32_get_idx(virt)], PG_USR | PG_RW, page_get_nr(pt_phys));
+    pg_set_entry(&pt[pt32_get_idx(virt)], PG_USR | PG_RW, page_get_nr(shared_phys));
 }
 
-void init_task(task_t *task, uint32_t pgd_phys, uint32_t code_phys, uint32_t user_stack_phys, uint32_t kern_stack_phys, uint32_t shared_virt, uint32_t eip) {
-    task->pgd = (uint32_t*)pgd_phys;
-    task->esp0 = (uint32_t*)(kern_stack_phys + PAGE_SIZE);
+/* Identity map kernel (U/S=0) pour au moins 16 MiB */
+static void map_16MB_identity_kernel(pde32_t *pgd, uint32_t pt_phys_base) {
+    for (int pd = 0; pd < 4; pd++) {
+        uint32_t pt_phys = pt_phys_base + pd * PAGE_SIZE;
+        pte32_t *pt = (pte32_t*)pt_phys;
+        __clear_page(pt);
+        pg_set_entry(&pgd[pd], PG_RW, page_get_nr(pt_phys)); /* U/S=0 */
+        for (int i = 0; i < 1024; i++) {
+            uint32_t phys = (pd << 22) | (i << 12);
+            pg_set_entry(&pt[i], PG_RW, page_get_nr(phys));   /* U/S=0 */
+        }
+    }
+}
+
+/*  Contexte initial (cadre iret)  */
+static void build_initial_iret_frame(task_t *t) {
+    uint32_t *sp = t->esp0;
+    *(--sp) = USR_DS_SEL;                 /* SS user */
+    *(--sp) = (uint32_t)t->stack_user;    /* ESP user (haut de pile) */
+    *(--sp) = 0x202;                      /* EFLAGS (IF=1) */
+    *(--sp) = USR_CS_SEL;                 /* CS user */
+    *(--sp) = t->eip;                     /* EIP user */
+    for (int i = 0; i < 8; i++) *(--sp) = 0;
+    t->esp0 = sp;
+}
+
+/*  Initialisation d'une tâche  */
+void init_task(task_t *task,
+               uint32_t pgd_phys,
+               uint32_t code_base_virt, uint32_t code_pt_phys,
+               uint32_t user_stack_phys,
+               uint32_t kern_stack_phys,
+               uint32_t shared_virt, uint32_t shared_pt_phys,
+               uint32_t eip,
+               uint32_t kern_pt_base) {
+
+    task->pgd        = (uint32_t*)pgd_phys;
+    task->esp0       = (uint32_t*)(kern_stack_phys + PAGE_SIZE);
     task->stack_user = (uint32_t*)(user_stack_phys + PAGE_SIZE);
     task->shared_vaddr = (uint32_t*)shared_virt;
-    task->eip = eip;
+    task->eip        = eip;
 
-    map_identity((pde32_t*)task->pgd, pgd_phys, code_phys);
-    map_shared((pde32_t*)task->pgd, shared_virt, SHARED_PHYS);
-	uint32_t *stack = task->esp0;
-    *(--stack) = gdt_usr_seg_sel(4); // SS
-    *(--stack) = (uint32_t)task->stack_user;
-    *(--stack) = 0x202;              // EFLAGS
-    *(--stack) = gdt_usr_seg_sel(3); // CS
-    *(--stack) = task->eip;
-    for (int i = 0; i < 8; i++) *(--stack) = 0;
-    task->esp0 = stack;
+    __clear_page((void*)pgd_phys);
+
+    map_16MB_identity_kernel((pde32_t*)pgd_phys, kern_pt_base);
+    map_4MB_identity_user((pde32_t*)pgd_phys, code_base_virt, code_pt_phys);
+    map_shared_page_user((pde32_t*)pgd_phys, shared_virt, shared_pt_phys, SHARED_PHYS);
+
+    build_initial_iret_frame(task);
 }
 
+/*  Scheduler simple */
+void irq0_handler(int_ctx_t *ctx) {
+    int from_user = ((ctx->cs.raw & 3) == 3);
+
+    setptr(current_task->esp0, (offset_t)ctx);
+
+    task_t *next = (current_task == &task1) ? &task2 : &task1;
+    current_task = next;
+
+    set_cr3((uint32_t)next->pgd);
+    tss_set_kernel_stack((uint32_t)next->esp0);
+
+    if (!from_user) {
+        asm volatile ("mov %0, %%esp" :: "r"(next->esp0));
+    }
+}
+
+/*  Activation des interruptions  */
 static inline void sti(){
     asm volatile ("sti");
 }
 
+/* Entrée explicite en ring 3: charge DS/ES/FS/GS en user avant iret */
+static void enter_userland_initial(task_t *t) {
+    asm volatile (
+        "mov %0, %%ds      \n"
+        "mov %0, %%es      \n"
+        "mov %0, %%fs      \n"
+        "mov %0, %%gs      \n"
+        "push %0           \n"  /* SS = USR_DS_SEL */
+        "push %1           \n"  /* ESP = t->stack_user (top) */
+        "pushf             \n"  /* EFLAGS */
+        "pop %%eax         \n"
+        "or $0x200, %%eax  \n"  /* IF=1 */
+        "push %%eax        \n"
+        "push %2           \n"  /* CS = USR_CS_SEL */
+        "push %3           \n"  /* EIP = t->eip */
+        "iret              \n"
+        :
+        : "r"(USR_DS_SEL),
+          "r"(t->stack_user),
+          "r"(USR_CS_SEL),
+          "r"(t->eip)
+        : "eax", "memory"
+    );
+}
 
 void tp() {
-	// TODO
+    // TODO
 
-	memset((void*)SHARED_PHYS, 0, PAGE_SIZE);
+    memset((void*)SHARED_PHYS, 0, PAGE_SIZE);
 
-    init_task(&task1, PGD1_PHYS, USER1_PHYS, USER1_STACK_PHYS, KERN1_STACK_PHYS, SHARED_VIRT_T1, (uint32_t)&user1);
-    init_task(&task2, PGD2_PHYS, USER2_PHYS, USER2_STACK_PHYS, KERN2_STACK_PHYS, SHARED_VIRT_T2, (uint32_t)&user2);
+    init_task(&task1,
+              PGD1_PHYS,
+              USER1_PHYS, PT1_CODE_PHYS,
+              USER1_STACK_PHYS,
+              KERN1_STACK_PHYS,
+              SHARED_VIRT_T1, PT1_SHRD_PHYS,
+              (uint32_t)&user1,
+              PT1_KERN_BASE);
 
+    init_task(&task2,
+              PGD2_PHYS,
+              USER2_PHYS, PT2_CODE_PHYS,
+              USER2_STACK_PHYS,
+              KERN2_STACK_PHYS,
+              SHARED_VIRT_T2, PT2_SHRD_PHYS,
+              (uint32_t)&user2,
+              PT2_KERN_BASE);
+
+    /* Init TSS mémoire + pile noyau initiale */
+    memset(&TSS, 0, sizeof(TSS));
+    TSS.s0.ss  = KRN_DS_SEL;
+    TSS.s0.esp = (uint32_t)task1.esp0;
+
+    /* Récupérer la GDT et y déposer l’entrée TSS, puis charger TR */
+    gdt_reg_t gdtr;
+    get_gdtr(gdtr);
+    seg_desc_t *gdt = (seg_desc_t*)gdtr.addr;
+    tss_dsc(&gdt[TSS_IDX], (offset_t)&TSS);
+    set_tr(TSS_SEL);  /* macro de segmem.h */
+
+    /* IDT: installer gates syscall 0x80 et IRQ0 avec selector = code noyau, type, présence, DPL */
     idt_reg_t idtr;
     get_idtr(idtr);
-    int_desc_t *syscall_dsc = &idtr.desc[SYSCALL_INT];
-    syscall_dsc->offset_1 = (uint16_t)((uint32_t)syscall_isr);
-    syscall_dsc->offset_2 = (uint16_t)(((uint32_t)syscall_isr) >> 16);
-    syscall_dsc->p = 1;
-    syscall_dsc->type = 0xE;
-    syscall_dsc->dpl = 3;
 
-	int_desc_t *irq0_dsc = &idtr.desc[IRQ0];
-    irq0_dsc->offset_1 = (uint16_t)((uint32_t)irq0_isr);
-    irq0_dsc->offset_2 = (uint16_t)(((uint32_t)irq0_isr) >> 16);
-    irq0_dsc->p = 1;
-    irq0_dsc->type = 0xE;
+    int_desc_t *syscall_dsc = &idtr.desc[SYSCALL_INT];
+    build_int_desc(syscall_dsc, KRN_CS_SEL, (offset_t)syscall_isr);
+    syscall_dsc->dpl = 3; /* Accessible depuis ring 3 */
+
+    int_desc_t *irq0_dsc = &idtr.desc[IRQ0];
+    build_int_desc(irq0_dsc, KRN_CS_SEL, (offset_t)irq0_isr);
     irq0_dsc->dpl = 0;
 
+    /* Charger l’espace d’adressage de la tâche 1, activer paging */
     set_cr3((uint32_t)task1.pgd);
     uint32_t cr0 = get_cr0();
     set_cr0(cr0 | 0x80000000);
 
-    sti(); //set interrupt flag --> a definir
-    while (1);
-	
+    /* Initialisations des interruptions si disponibles */
+    if (intr_init) intr_init();
+    if (pic_remap) pic_remap();
+    if (pit_init)  pit_init();
+
+    /* Entrée explicite en ring 3, segments utilisateur valides avant iret */
+    enter_userland_initial(&task1);
+
+    /* On ne revient pas ici; boucle de sécurité si iret échoue */
+    while (1) { }
 }
