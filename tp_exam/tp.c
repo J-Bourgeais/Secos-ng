@@ -6,14 +6,14 @@
 #include <intr.h>
 #include <string.h>
 #include <cr.h>
-#include <types.h>   /* pour offset_t / raw32_t / loc_t et setptr */
+#include <types.h> 
 
-/* Si disponibles dans ton projet, ces initialisations doivent être appelées avant sti() */
+/* cf correction chatty */
 extern void intr_init(void) __attribute__((weak));
 extern void pic_remap(void) __attribute__((weak));
 extern void pit_init(void) __attribute__((weak));
 
-/* Tes constantes originales, gardées */
+/* Adresses physiques des zones mémoire des tâches */
 #define USER1_PHYS       0x400000
 #define USER2_PHYS       0x800000
 #define USER1_STACK_PHYS 0x401000
@@ -72,6 +72,7 @@ fatal exception !
 */
 
 
+
 /* Contexte des tâches */
 typedef struct task {
     uint32_t *pgd;         // Page directory
@@ -81,7 +82,6 @@ typedef struct task {
     uint32_t eip;          // Adresse de départ (user1 ou user2)
 } task_t;
 
-//Définir les taches 1 et 2
 task_t task1, task2;
 task_t *current_task;
 
@@ -157,7 +157,7 @@ void user2() {
     }
 }
 
-/* Stubs ISR */
+/*  Handlers  */
 void irq0_isr();
 void syscall_isr();
 
@@ -226,6 +226,7 @@ void syscall_handler(int_ctx_t *ctx) {
 #define PT2_SHRD_PHYS   (PGD2_PHYS + 0x002000)
 #define PT2_KERN_BASE   (PGD2_PHYS + 0x003000)
 
+/* Mappe une page de 4 MiB en identity mapping en user */
 static void map_4MB_identity_user(pde32_t *pgd, uint32_t virt_base, uint32_t pt_phys) {
     pte32_t *pt = (pte32_t*)pt_phys;
     __clear_page(pt);
@@ -237,6 +238,7 @@ static void map_4MB_identity_user(pde32_t *pgd, uint32_t virt_base, uint32_t pt_
     }
 }
 
+/* Mappe une page partagée en user */
 static void map_shared_page_user(pde32_t *pgd, uint32_t virt, uint32_t pt_phys, uint32_t shared_phys) {
     pte32_t *pt = (pte32_t*)pt_phys;
     __clear_page(pt);
@@ -375,7 +377,7 @@ void tp() {
     get_gdtr(gdtr);
     seg_desc_t *gdt = (seg_desc_t*)gdtr.addr;
     tss_dsc(&gdt[TSS_IDX], (offset_t)&TSS);
-    set_tr(TSS_SEL);  /* macro de segmem.h */
+    set_tr(TSS_SEL); 
 
     /* IDT: installer gates syscall 0x80 et IRQ0 avec selector = code noyau, type, présence, DPL */
     idt_reg_t idtr;
