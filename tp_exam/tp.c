@@ -403,7 +403,16 @@ void tp() {
     get_gdtr(gdtr);
     seg_desc_t *gdt = (seg_desc_t*)gdtr.addr;
     tss_dsc(&gdt[TSS_IDX], (offset_t)&TSS); 
+
+        //TEST RESOLUTION
+    uint16_t new_limit = ((TSS_IDX + 1) * sizeof(seg_desc_t)) - 1;
+    if (gdtr.limit < new_limit) {
+        gdtr.limit = new_limit;
+    }
+    set_gdtr(gdtr);
+
     set_tr(TSS_SEL); 
+    //TEST RESOLUTION --> asm volatile("ltr %%ax" :: "a" (TSS_SEL)); --> essayer de le faire directement
 
     /* IDT: installer gates syscall 0x80 et IRQ0 avec selector = code noyau, type, présence, DPL */
     idt_reg_t idtr;
