@@ -470,6 +470,7 @@ void tp() {
     //Charge le plan d'adressage de Tâche 1 dans le CPU et active la pagination (paging) en modifiant le registre CR0
     set_cr3((uint32_t)task1.pgd);
     uint32_t cr0 = get_cr0();
+    debug("tp() address: 0x%x\n", (uint32_t)tp);
     set_cr0(cr0 | 0x80000000); //d'après les messages de debug --> le crash se produit certainement ici
     debug("Paging enabled with task 1 page directory\n");
 
