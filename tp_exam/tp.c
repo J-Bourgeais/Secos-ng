@@ -81,6 +81,13 @@ Donc on peut regarder ces éléments pour comprendre pourquoi on a cette erreur.
 - Le descripteur TSS dans la GDT est mal configuré (base, limite, type, etc.)
 - Le registre TR n'est pas correctement chargé avec le sélecteur TSS
 - PGD non valide (au moment de l'IRQ/Syscall) : le noyau doit toujours pouvoir accéder à son code/ses données, et au TSS
+
+nouvelle erreur : 
+ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion failed: (!qemu)
+Bail out! ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion fail)
+make: *** [../utils/rules.mk:58: qemu] Abandon (core dump créé)
+
+
 */
 
 
@@ -189,6 +196,13 @@ __attribute__((naked)) void irq0_isr() {
         "pushl %fs         \n"
         "pushl %gs         \n"
         "pusha             \n"
+
+        "movl $" __stringify(KRN_DS_SEL) ", %ax \n"
+        "movl %ax, %ds     \n"
+        "movl %ax, %es     \n"
+        "movl %ax, %fs     \n"
+        "movl %ax, %gs     \n"
+        
         "movl %esp, %eax   \n"
         "pushl %eax        \n"
         "call irq0_handler \n" //call le handler
@@ -212,6 +226,13 @@ __attribute__((naked)) void syscall_isr() {
         "pushl %fs           \n"
         "pushl %gs           \n"
         "pusha               \n"
+
+        "movl $" __stringify(KRN_DS_SEL) ", %ax \n"
+        "movl %ax, %ds       \n"
+        "movl %ax, %es       \n"
+        "movl %ax, %fs       \n"
+        "movl %ax, %gs       \n"
+
         "movl %esp, %eax     \n"
         "pushl %eax          \n"
         "call syscall_handler\n"
