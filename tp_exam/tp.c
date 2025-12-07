@@ -106,7 +106,7 @@ task_t *current_task;
 
 /* Sélecteurs GDT*/
 #define KRN_CS_SEL gdt_krn_seg_sel(1) //sélecteur de segment de code noyau (Ring 0)
-#define KRN_DS_SEL //sélecteur de segment de données noyau (Ring 0)
+#define KRN_DS_SEL gdt_krn_seg_sel(2)//sélecteur de segment de données noyau (Ring 0)
 #define USR_CS_SEL gdt_usr_seg_sel(3) //sélecteur de segment de code utilisateur (Ring 3)
 #define USR_DS_SEL gdt_usr_seg_sel(4) //sélecteur de segment de données utilisateur (Ring 3)
 
