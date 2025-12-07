@@ -459,19 +459,19 @@ void tp() {
     irq0_dsc->dpl = 0;
     debug("IRQ0 descriptor set in IDT\n");
 
-    /* Charger l’espace d’adressage de la tâche 1, activer paging */
-    //Charge le plan d'adressage de Tâche 1 dans le CPU et active la pagination (paging) en modifiant le registre CR0
-    set_cr3((uint32_t)task1.pgd);
-    uint32_t cr0 = get_cr0();
-    set_cr0(cr0 | 0x80000000);
-    debug("Paging enabled with task 1 page directory\n");
-
     /* Initialisations des interruptions si disponibles */
     //Démarre les interruptions pour que le timer puisse fonctionner
     if (intr_init) intr_init();
     if (pic_remap) pic_remap();
     if (pit_init)  pit_init();
     debug("Interrupts initialized\n");
+
+        /* Charger l’espace d’adressage de la tâche 1, activer paging */
+    //Charge le plan d'adressage de Tâche 1 dans le CPU et active la pagination (paging) en modifiant le registre CR0
+    set_cr3((uint32_t)task1.pgd);
+    uint32_t cr0 = get_cr0();
+    set_cr0(cr0 | 0x80000000); //d'après les messages de debug --> le crash se produit certainement ici
+    debug("Paging enabled with task 1 page directory\n");
 
     /* Entrée explicite en ring 3, segments utilisateur valides avant iret */
     //Lance l'exécution de Tâche 1 en mode utilisateur (Ring 3)
