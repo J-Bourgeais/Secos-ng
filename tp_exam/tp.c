@@ -250,7 +250,7 @@ __attribute__((naked)) void syscall_isr() {
 //Pour traiter l'appel système de la tache user2
 void syscall_handler(int_ctx_t *ctx) {
     
-    uint32_t *counter = (uint32_t*)ctx->gpr.esi.raw;
+    //uint32_t *counter = (uint32_t*)ctx->gpr.esi.raw;
 
     debug("Syscall received from task.\n");
     // uint32_t val = *counter;
