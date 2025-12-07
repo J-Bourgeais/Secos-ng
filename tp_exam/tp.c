@@ -82,11 +82,22 @@ Donc on peut regarder ces éléments pour comprendre pourquoi on a cette erreur.
 - Le registre TR n'est pas correctement chargé avec le sélecteur TSS
 - PGD non valide (au moment de l'IRQ/Syscall) : le noyau doit toujours pouvoir accéder à son code/ses données, et au TSS
 
-nouvelle erreur : 
-ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion failed: (!qemu)
-Bail out! ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion fail)
+nouvelle erreur, avec debug donc je sais ce qui pose problème (en tout cas quelle ligne) : 
+secos-05a50ae-e429b4b (c) Airbus
+TP exam start
+Tasks initialized
+TSS initialized
+TSS descriptor set in GDT
+TSS loaded into TR
+IDT loaded
+Syscall descriptor set in IDT
+IRQ0 descriptor set in IDT
+Interrupts initialized
+tp() address: 0x30478e
+**
+ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion failed: (!qemu_mutex_i)
+Bail out! ERROR:system/cpus.c:504:qemu_mutex_lock_iothread_impl: assertion failed: (!qe)
 make: *** [../utils/rules.mk:58: qemu] Abandon (core dump créé)
-
 
 */
 
@@ -472,8 +483,6 @@ void tp() {
     uint32_t cr0 = get_cr0();
     debug("tp() address: 0x%x\n", (uint32_t)tp);
     set_cr0(cr0 | 0x80000000); //d'après les messages de debug --> le crash se produit certainement ici
-    // --- ✅ CORRECTION : AJOUT DU SAUT POUR VIDER LE PIPELINE ---
-    asm volatile ("jmp 1f \n 1:"); // Saut court
 
     debug("Paging enabled with task 1 page directory\n");
 
