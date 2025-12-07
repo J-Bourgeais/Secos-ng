@@ -252,12 +252,11 @@ void syscall_handler(int_ctx_t *ctx) {
     
     uint32_t *counter = (uint32_t*)ctx->gpr.esi.raw;
 
-    debug("Syscall received from task.\n");
-    debug("Counter before = %u\n", *counter);
-    // uint32_t val = *counter;
-    // val++;
-    // *counter = val;
-    // debug("Counter = %u\n", val); //Est sensé l'afficher !!!
+   
+    uint32_t val = *counter;
+    val++;
+    *counter = val;
+    debug("Counter = %u\n", val); //Est sensé l'afficher !!!
 }   
 
 /*  Mapping  */
@@ -396,7 +395,7 @@ static void enter_userland_initial(task_t *t) {
 
 void tp() {
     // TODO
-
+    debug("TP exam start\n");
     //Initialise à zéro la page mémoire physique partagée
     memset((void*)SHARED_PHYS, 0, PAGE_SIZE);
 
@@ -418,16 +417,19 @@ void tp() {
               (uint32_t)&user2,
               PT2_KERN_BASE);
 
+    debug("Tasks initialized\n");
     /* Init TSS mémoire + pile noyau initiale */
     memset(&TSS, 0, sizeof(TSS));
     TSS.s0.ss  = KRN_DS_SEL;
     TSS.s0.esp = (uint32_t)task1.esp0;
+    debug ("TSS initialized\n");
 
     /* Récupérer la GDT et y déposer l’entrée TSS, puis charger TR */
     gdt_reg_t gdtr;
     get_gdtr(gdtr);
     seg_desc_t *gdt = (seg_desc_t*)gdtr.addr;
     tss_dsc(&gdt[TSS_IDX], (offset_t)&TSS); 
+    debug("TSS descriptor set in GDT\n");
 
         //TEST RESOLUTION
     uint16_t new_limit = ((TSS_IDX + 1) * sizeof(seg_desc_t)) - 1;
@@ -439,31 +441,37 @@ void tp() {
     set_tr(TSS_SEL); 
     //TEST RESOLUTION --> asm volatile("ltr %%ax" :: "a" (TSS_SEL)); --> essayer de le faire directement
 
+    debug("TSS loaded into TR\n");
     /* IDT: installer gates syscall 0x80 et IRQ0 avec selector = code noyau, type, présence, DPL */
     idt_reg_t idtr;
     get_idtr(idtr);
+    debug("IDT loaded\n");
 
     int_desc_t *syscall_dsc = &idtr.desc[SYSCALL_INT];
     //Configure le point d'entrée 0x80 (syscall) dans la table d'interruption (IDT) et le rend accessible depuis Ring 3
     build_int_desc(syscall_dsc, KRN_CS_SEL, (offset_t)syscall_isr);
     syscall_dsc->dpl = 3; /* Accessible depuis ring 3 */
+    debug("Syscall descriptor set in IDT\n");
 
     int_desc_t *irq0_dsc = &idtr.desc[IRQ0];
     //Configure le point d'entrée 32 (IRQ0) pour le timer, accessible seulement depuis Ring 0
     build_int_desc(irq0_dsc, KRN_CS_SEL, (offset_t)irq0_isr);
     irq0_dsc->dpl = 0;
+    debug("IRQ0 descriptor set in IDT\n");
 
     /* Charger l’espace d’adressage de la tâche 1, activer paging */
     //Charge le plan d'adressage de Tâche 1 dans le CPU et active la pagination (paging) en modifiant le registre CR0
     set_cr3((uint32_t)task1.pgd);
     uint32_t cr0 = get_cr0();
     set_cr0(cr0 | 0x80000000);
+    debug("Paging enabled with task 1 page directory\n");
 
     /* Initialisations des interruptions si disponibles */
     //Démarre les interruptions pour que le timer puisse fonctionner
     if (intr_init) intr_init();
     if (pic_remap) pic_remap();
     if (pit_init)  pit_init();
+    debug("Interrupts initialized\n");
 
     /* Entrée explicite en ring 3, segments utilisateur valides avant iret */
     //Lance l'exécution de Tâche 1 en mode utilisateur (Ring 3)
