@@ -197,10 +197,11 @@ __attribute__((naked)) void irq0_isr() {
         "pushl %gs         \n"
         "pusha             \n"
 
-        "movl %0, %%ds       \n" // Charge KRN_DS_SEL dans DS
-        "movl %0, %%es       \n" // Charge KRN_DS_SEL dans ES
-        "movl %0, %%fs       \n" // Charge KRN_DS_SEL dans FS
-        "movl %0, %%gs       \n" // Charge KRN_DS_SEL dans GS
+        "movl $0x10, %ax \n"
+        "movl %ax, %ds     \n"
+        "movl %ax, %es     \n"
+        "movl %ax, %fs     \n"
+        "movl %ax, %gs     \n"
 
         "movl %esp, %eax   \n"
         "pushl %eax        \n"
@@ -213,9 +214,6 @@ __attribute__((naked)) void irq0_isr() {
         "popl %ds          \n"
         "sti               \n" //réactive les interruptions
         "iret              \n" //retour de l'interruption
-        : // Pas d'Output
-        : "i"(KRN_DS_SEL) // Input: %0 est KRN_DS_SEL (valeur immédiate)
-        : "memory"        // Clobber
     );
 }
 
@@ -228,13 +226,13 @@ __attribute__((naked)) void syscall_isr() {
         "pushl %fs           \n"
         "pushl %gs           \n"
         "pusha               \n"
-        
-        
-        "movl %0, %%ds       \n" // Charge KRN_DS_SEL dans DS
-        "movl %0, %%es       \n" // Charge KRN_DS_SEL dans ES
-        "movl %0, %%fs       \n" // Charge KRN_DS_SEL dans FS
-        "movl %0, %%gs       \n" // Charge KRN_DS_SEL dans GS
-        
+
+        "movl $0x10, %ax \n"
+        "movl %ax, %ds       \n"
+        "movl %ax, %es       \n"
+        "movl %ax, %fs       \n"
+        "movl %ax, %gs       \n"
+
         "movl %esp, %eax     \n"
         "pushl %eax          \n"
         "call syscall_handler\n"
@@ -246,10 +244,6 @@ __attribute__((naked)) void syscall_isr() {
         "popl %ds            \n"
         "sti                 \n"
         "iret                \n"
-        
-        : // Pas d'Output
-        : "i"(KRN_DS_SEL) // Input: %0 est KRN_DS_SEL (valeur immédiate)
-        : "memory"        // Clobber
     );
 }
 
