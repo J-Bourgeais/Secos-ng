@@ -106,7 +106,7 @@ task_t *current_task;
 
 /* Sélecteurs GDT*/
 #define KRN_CS_SEL gdt_krn_seg_sel(1) //sélecteur de segment de code noyau (Ring 0)
-#define KRN_DS_SEL gdt_krn_seg_sel(2) //sélecteur de segment de données noyau (Ring 0)
+#define KRN_DS_SEL //sélecteur de segment de données noyau (Ring 0)
 #define USR_CS_SEL gdt_usr_seg_sel(3) //sélecteur de segment de code utilisateur (Ring 3)
 #define USR_DS_SEL gdt_usr_seg_sel(4) //sélecteur de segment de données utilisateur (Ring 3)
 
@@ -197,12 +197,11 @@ __attribute__((naked)) void irq0_isr() {
         "pushl %gs         \n"
         "pusha             \n"
 
-        "movl $" __stringify(KRN_DS_SEL) ", %ax \n"
-        "movl %ax, %ds     \n"
-        "movl %ax, %es     \n"
-        "movl %ax, %fs     \n"
-        "movl %ax, %gs     \n"
-        
+        "movl %0, %%ds       \n" // Charge KRN_DS_SEL dans DS
+        "movl %0, %%es       \n" // Charge KRN_DS_SEL dans ES
+        "movl %0, %%fs       \n" // Charge KRN_DS_SEL dans FS
+        "movl %0, %%gs       \n" // Charge KRN_DS_SEL dans GS
+
         "movl %esp, %eax   \n"
         "pushl %eax        \n"
         "call irq0_handler \n" //call le handler
@@ -214,6 +213,9 @@ __attribute__((naked)) void irq0_isr() {
         "popl %ds          \n"
         "sti               \n" //réactive les interruptions
         "iret              \n" //retour de l'interruption
+        : // Pas d'Output
+        : "i"(KRN_DS_SEL) // Input: %0 est KRN_DS_SEL (valeur immédiate)
+        : "memory"        // Clobber
     );
 }
 
@@ -226,13 +228,13 @@ __attribute__((naked)) void syscall_isr() {
         "pushl %fs           \n"
         "pushl %gs           \n"
         "pusha               \n"
-
-        "movl $" __stringify(KRN_DS_SEL) ", %ax \n"
-        "movl %ax, %ds       \n"
-        "movl %ax, %es       \n"
-        "movl %ax, %fs       \n"
-        "movl %ax, %gs       \n"
-
+        
+        
+        "movl %0, %%ds       \n" // Charge KRN_DS_SEL dans DS
+        "movl %0, %%es       \n" // Charge KRN_DS_SEL dans ES
+        "movl %0, %%fs       \n" // Charge KRN_DS_SEL dans FS
+        "movl %0, %%gs       \n" // Charge KRN_DS_SEL dans GS
+        
         "movl %esp, %eax     \n"
         "pushl %eax          \n"
         "call syscall_handler\n"
@@ -244,6 +246,10 @@ __attribute__((naked)) void syscall_isr() {
         "popl %ds            \n"
         "sti                 \n"
         "iret                \n"
+        
+        : // Pas d'Output
+        : "i"(KRN_DS_SEL) // Input: %0 est KRN_DS_SEL (valeur immédiate)
+        : "memory"        // Clobber
     );
 }
 
