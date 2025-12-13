@@ -26,5 +26,7 @@ SECTIONS
    .bss      : { *(.bss COMMON)                  } : phsetup
    /DISCARD/ : { *(.note* .indent .comment)      } : phsetup
 
+   .user     : { *(.user) . = ALIGN(4);         } : phsetup
+
    __kernel_end__ = .;
 }
