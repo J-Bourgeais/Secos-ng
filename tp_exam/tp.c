@@ -19,8 +19,12 @@ extern void pit_init(void) __attribute__((weak));
 /* Adresses physiques des zones mémoire des tâches */
 #define USER1_PHYS       0x400000 //adresse physique de base pour le code de la tâche utilisateur 1
 #define USER2_PHYS       0x800000 //adresse physique de base pour le code de la tâche utilisateur 2
+
+//"Les tâches doivent avoir leur propre pile utilisateur"
 #define USER1_STACK_PHYS 0x401000 //adresse physique pour la pile utilisateur de la tâche 1
 #define USER2_STACK_PHYS 0x801000 //adresse physique pour la pile utilisateur de la tâche 2
+
+//"Les tâches doivent avoir leur propre pile noyau"
 #define KERN1_STACK_PHYS 0x402000 //adresse physique pour la pile noyau de la tâche 1
 #define KERN2_STACK_PHYS 0x802000 //adresse physique pour la pile noyau de la tâche 2
 #define SHARED_PHYS      0x900000 //adresse physique de la page partagée entre les deux tâches
@@ -72,6 +76,7 @@ cr4 = 0x0
 0x8c85
 0x72bf0000
 fatal exception !
+--> Normalement c'est résolu
 
 
 --> On a une GP Fault à l'adresse 0x304852, qui correspond à l'instruction "mov %ds, %eax" dans la fonction syscall_handler.
@@ -81,6 +86,7 @@ Donc on peut regarder ces éléments pour comprendre pourquoi on a cette erreur.
 - Le descripteur TSS dans la GDT est mal configuré (base, limite, type, etc.)
 - Le registre TR n'est pas correctement chargé avec le sélecteur TSS
 - PGD non valide (au moment de l'IRQ/Syscall) : le noyau doit toujours pouvoir accéder à son code/ses données, et au TSS
+--> Résolu normalement
 
 nouvelle erreur, avec debug donc je sais ce qui pose problème (en tout cas quelle ligne) : 
 secos-05a50ae-e429b4b (c) Airbus
@@ -103,29 +109,29 @@ make: *** [../utils/rules.mk:58: qemu] Abandon (core dump créé)
 
 
 
-/* Contexte des tâches */
+//Contexte des tâches
 typedef struct task {
-    uint32_t *pgd;         // Page directory
-    uint32_t *esp0;        // Pile noyau (haut de pile)
-    uint32_t *stack_user;  // Pile utilisateur
-    uint32_t *shared_vaddr;// Adresse virtuelle de la zone partagée
-    uint32_t eip;          // Adresse de départ (user1 ou user2)
+    uint32_t *pgd;         
+    uint32_t *esp0;       
+    uint32_t *stack_user; 
+    uint32_t *shared_vaddr;
+    uint32_t eip;          
 } task_t;
 
 task_t task1, task2;
 task_t *current_task;
 
-/* Sélecteurs GDT*/
+//Sélecteurs GDT
 #define KRN_CS_SEL gdt_krn_seg_sel(1) //sélecteur de segment de code noyau (Ring 0)
 #define KRN_DS_SEL gdt_krn_seg_sel(2)//sélecteur de segment de données noyau (Ring 0)
 #define USR_CS_SEL gdt_usr_seg_sel(3) //sélecteur de segment de code utilisateur (Ring 3)
 #define USR_DS_SEL gdt_usr_seg_sel(4) //sélecteur de segment de données utilisateur (Ring 3)
 
-/* Indice TSS ; on suppose que l’entrée TSS est index 5 */
+//Indice TSS - entrée TSS --> index 5 
 #define TSS_IDX    5
 #define TSS_SEL    gdt_krn_seg_sel(TSS_IDX)
 
-/* TSS global (pour basculer pile noyau lors des IRQ depuis ring 3) */
+//TSS global (pour basculer pile noyau lors des IRQ depuis ring 3) 
 static tss_t TSS;
 
 /* Helpers: mise à jour de l'adresse de la pile noyau de la tache courante dans le TSS 
@@ -135,7 +141,7 @@ static inline void tss_set_kernel_stack(uint32_t esp0) {
     TSS.s0.ss  = KRN_DS_SEL;
 }
 
-/* Helper: construire un descripteur TSS dans la GDT TODO --> Voir si présents autres TP*/
+/* Helper: construire un descripteur TSS dans la GDT TODO --> Voir comment codés TP prof*/
 static inline void tss_dsc(seg_desc_t *dsc, offset_t tss_addr) {
     memset(dsc, 0, sizeof(*dsc));
     raw32_t addr = {.raw = (uint32_t)tss_addr};
@@ -148,18 +154,18 @@ static inline void tss_dsc(seg_desc_t *dsc, offset_t tss_addr) {
     dsc->base_2 = addr._whigh.blow;
     dsc->base_3 = addr._whigh.bhigh;
 
-    dsc->type   = SEG_DESC_SYS_TSS_AVL_32;  // 0x9
-    dsc->s      = 0;                        // descripteur système
+    dsc->type   = SEG_DESC_SYS_TSS_AVL_32;  
+    dsc->s      = 0;                        
     dsc->dpl    = 0;
     dsc->p      = 1;
 
     dsc->avl    = 0;
     dsc->l      = 0;
-    dsc->d      = 0;                        // non applicable ici
-    dsc->g      = 0;                        // limite en octets
+    dsc->d      = 0;                    
+    dsc->g      = 0;                      
 }
 
-/* Interface utilisateur pour l'appel système */
+// Interface utilisateur pour l'appel système
 void sys_counter(uint32_t *c) {
    asm volatile (
       "mov %0, %%esi \n"
@@ -189,7 +195,8 @@ void user2() {
 }
 
 /*  Handlers  */
-//Déclarations des Interrupt Service Routines (ISR) qui sont les points d'entrée dans le noyau pour les interruptions matérielles (IRQ0) et logicielles (SYSCALL_INT
+//Gestion du timer & co
+//Déclarations des ISR, points d'entrée dans le noyau pour les interruptions matérielles (IRQ0) et logicielles (SYSCALL_INT)
 void irq0_isr(); 
 void syscall_isr();
 
@@ -201,7 +208,7 @@ void syscall_handler(int_ctx_t *ctx);
 //naked : rajoute rien au code --> pas de prologue/épilogue
 __attribute__((naked)) void irq0_isr() {
     asm volatile (
-        "cli               \n" //Désactive les aurtes interruptions pendant le traitement
+        "cli               \n" //Désactive les aurtes interruptions pendant le traitement pour pas avoir des pb de priorités qui gachent tout
         "pushl %ds         \n" //sauvegarde les registres et segments
         "pushl %es         \n"
         "pushl %fs         \n"
@@ -263,14 +270,13 @@ void syscall_handler(int_ctx_t *ctx) {
     
     uint32_t *counter = (uint32_t*)ctx->gpr.esi.raw;
 
-   
     uint32_t val = *counter;
     val++;
     *counter = val;
-    debug("Counter = %u\n", val); //Est sensé l'afficher !!!
+    debug("Counter = %u\n", val); //Est sensé l'afficher (si on arrivait jusque là)!!
 }   
 
-/*  Mapping  */
+//Mapping
 
 #define PT1_CODE_PHYS   (PGD1_PHYS + 0x001000)
 #define PT1_SHRD_PHYS   (PGD1_PHYS + 0x002000)
@@ -281,7 +287,8 @@ void syscall_handler(int_ctx_t *ctx) {
 #define PT2_KERN_BASE   (PGD2_PHYS + 0x003000)
 
 /* Mappe une page de 4 MiB en identity mapping en user --> Crée une zone d'adressage utilisateur de 4 Mo où l'adresse virtuelle est la même que l'adresse physique */
-//TODO --> Voir les autres TP si pareil
+//TODO --> Voir les TPs de la prof si pareil
+//"Les tâches sont identity mappées"
 static void map_4MB_identity_user(pde32_t *pgd, uint32_t virt_base, uint32_t pt_phys) {
     pte32_t *pt = (pte32_t*)pt_phys;
     __clear_page(pt);
@@ -302,6 +309,8 @@ static void map_shared_page_user(pde32_t *pgd, uint32_t virt, uint32_t pt_phys, 
     pg_set_entry(&pt[pt32_get_idx(virt)], PG_USR | PG_RW, page_get_nr(shared_phys));
 }
 
+
+//"Le noyau est identity mappé."
 /* Identity map kernel (U/S=0) pour au moins 16 MiB --> Crée une grande zone (16 Mo) où l'adresse virtuelle est la même que l'adresse physique, mais seul le noyau peut y accéder*/
 static void map_16MB_identity_kernel(pde32_t *pgd, uint32_t pt_phys_base) {
     for (int pd = 0; pd < 4; pd++) { //TOSEE --> Test avec 41 pour aller jusqu'à A1...
@@ -319,6 +328,7 @@ static void map_16MB_identity_kernel(pde32_t *pgd, uint32_t pt_phys_base) {
 /*  Contexte initial (cadre iret)  */
 //Prépare la pile noyau de la tâche pour faire croire au CPU qu'il revient d'une interruption. 
 //permet de démarrer la tâche utilisateur en mode Ring 3.
+//le iret est appelé par entier_userland_initial()
 static void build_initial_iret_frame(task_t *t) {
     uint32_t *sp = t->esp0;
     *(--sp) = USR_DS_SEL;                 /* SS user */
@@ -332,14 +342,7 @@ static void build_initial_iret_frame(task_t *t) {
 
 /*  Initialisation d'une tâche  */
 // Fonction d'initialisation complète de la structure task_t et de son espace d'adressage virtuel.
-void init_task(task_t *task,
-               uint32_t pgd_phys,
-               uint32_t code_base_virt, uint32_t code_pt_phys,
-               uint32_t user_stack_phys,
-               uint32_t kern_stack_phys,
-               uint32_t shared_virt, uint32_t shared_pt_phys,
-               uint32_t eip,
-               uint32_t kern_pt_base) {
+void init_task(task_t *task, uint32_t pgd_phys, uint32_t code_base_virt, uint32_t code_pt_phys, uint32_t user_stack_phys,uint32_t kern_stack_phys, uint32_t shared_virt, uint32_t shared_pt_phys, uint32_t eip,uint32_t kern_pt_base) {
 
     task->pgd        = (uint32_t*)pgd_phys;
     task->esp0       = (uint32_t*)(kern_stack_phys + PAGE_SIZE);
@@ -360,7 +363,6 @@ void init_task(task_t *task,
 //La fonction qui s'exécute à chaque tic-tac de l'horloge pour changer de programme
 void irq0_handler(int_ctx_t *ctx) {
     int from_user = ((ctx->cs.raw & 3) == 3); //vérifie si l'interruption vient du mode utilisateur (Ring 3)
-
     setptr(current_task->esp0, (offset_t)ctx); //sauvegarde le contexte actuel de la tâche courante dans sa pile noyau
 
     task_t *next = (current_task == &task1) ? &task2 : &task1; //si une tache, on prend l'autre
@@ -383,19 +385,19 @@ static inline void sti(){
 //initialise les registres de segments et empile manuellement un cadre iret (Stack Frame) pour forcer le passage initial au mode Ring 3 et le démarrage de la première tache utilisateur
 static void enter_userland_initial(task_t *t) {
     asm volatile (
-        "mov %0, %%ds      \n"
+        "mov %0, %%ds      \n" //initialisation des segments de données --> met sélecteur de segment de données utilisateur
         "mov %0, %%es      \n"
         "mov %0, %%fs      \n"
         "mov %0, %%gs      \n"
-        "push %0           \n"  /* SS = USR_DS_SEL */
-        "push %1           \n"  /* ESP = t->stack_user (top) */
-        "pushf             \n"  /* EFLAGS */
+        "push %0           \n" //Empile les éléments que le iret va dépiler pour restaurer le contexte CPU
+        "push %1           \n"  
+        "pushf             \n"  //Gère EFLAGS --> met IF à 1 pour activer les interruptions
         "pop %%eax         \n"
-        "or $0x200, %%eax  \n"  /* IF=1 */
+        "or $0x200, %%eax  \n" 
         "push %%eax        \n"
-        "push %2           \n"  /* CS = USR_CS_SEL */
-        "push %3           \n"  /* EIP = t->eip */
-        "iret              \n"
+        "push %2           \n"  
+        "push %3           \n"
+        "iret              \n" //iret --> en théorie ca nous met en ring3
         :
         : "r"(USR_DS_SEL),
           "r"(t->stack_user),
@@ -406,8 +408,8 @@ static void enter_userland_initial(task_t *t) {
 }
 
 void tp() {
-    // TODO
     debug("TP exam start\n");
+    
     //Initialise à zéro la page mémoire physique partagée
     memset((void*)SHARED_PHYS, 0, PAGE_SIZE);
 
@@ -430,13 +432,14 @@ void tp() {
               PT2_KERN_BASE);
 
     debug("Tasks initialized\n");
-    /* Init TSS mémoire + pile noyau initiale */
+
+    // Init TSS mémoire + pile noyau initiale 
     memset(&TSS, 0, sizeof(TSS));
     TSS.s0.ss  = KRN_DS_SEL;
     TSS.s0.esp = (uint32_t)task1.esp0;
     debug ("TSS initialized\n");
 
-    /* Récupérer la GDT et y déposer l’entrée TSS, puis charger TR */
+    // Récupérer la GDT et y déposer l’entrée TSS, puis charger TR
     gdt_reg_t gdtr;
     get_gdtr(gdtr);
     seg_desc_t *gdt = (seg_desc_t*)gdtr.addr;
@@ -451,10 +454,10 @@ void tp() {
     set_gdtr(gdtr);
 
     set_tr(TSS_SEL); 
-    //TEST RESOLUTION --> asm volatile("ltr %%ax" :: "a" (TSS_SEL)); --> essayer de le faire directement
+    //TEST RESOLUTION --> asm volatile("ltr %%ax" :: "a" (TSS_SEL)); --> essayer de le faire directement --> change rien
 
     debug("TSS loaded into TR\n");
-    /* IDT: installer gates syscall 0x80 et IRQ0 avec selector = code noyau, type, présence, DPL */
+    // IDT: installer gates syscall 0x80 et IRQ0 avec selector = code noyau, type, présence, DPL
     idt_reg_t idtr;
     get_idtr(idtr);
     debug("IDT loaded\n");
@@ -462,7 +465,7 @@ void tp() {
     int_desc_t *syscall_dsc = &idtr.desc[SYSCALL_INT];
     //Configure le point d'entrée 0x80 (syscall) dans la table d'interruption (IDT) et le rend accessible depuis Ring 3
     build_int_desc(syscall_dsc, KRN_CS_SEL, (offset_t)syscall_isr);
-    syscall_dsc->dpl = 3; /* Accessible depuis ring 3 */
+    syscall_dsc->dpl = 3; 
     debug("Syscall descriptor set in IDT\n");
 
     int_desc_t *irq0_dsc = &idtr.desc[IRQ0];
@@ -478,7 +481,7 @@ void tp() {
     if (pit_init)  pit_init();
     debug("Interrupts initialized\n");
 
-        /* Charger l’espace d’adressage de la tâche 1, activer paging */
+    //Charger l’espace d’adressage de la tâche 1, activer paging
     //Charge le plan d'adressage de Tâche 1 dans le CPU et active la pagination (paging) en modifiant le registre CR0
     set_cr3((uint32_t)task1.pgd);
     uint32_t cr0 = get_cr0();
@@ -488,7 +491,7 @@ void tp() {
 
     debug("Paging enabled with task 1 page directory\n");
 
-    /* Entrée explicite en ring 3, segments utilisateur valides avant iret */
+    // Entrée explicite en ring 3, segments utilisateur valides avant iret
     //Lance l'exécution de Tâche 1 en mode utilisateur (Ring 3)
     enter_userland_initial(&task1);
 
