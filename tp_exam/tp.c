@@ -291,6 +291,7 @@ static void map_4MB_identity_user(pde32_t *pgd, uint32_t virt_base, uint32_t pt_
         uint32_t phys = base4m + (i << PAGE_SHIFT);
         pg_set_entry(&pt[i], PG_USR | PG_RW, page_get_nr(phys));
     }
+
 }
 
 /* Mappe une page partagée en user --> Crée une seule page utilisateur (4 KiB) pour la mémoire partagée, en la rendant accessible à une adresse virtuelle spécifique */
@@ -303,7 +304,7 @@ static void map_shared_page_user(pde32_t *pgd, uint32_t virt, uint32_t pt_phys, 
 
 /* Identity map kernel (U/S=0) pour au moins 16 MiB --> Crée une grande zone (16 Mo) où l'adresse virtuelle est la même que l'adresse physique, mais seul le noyau peut y accéder*/
 static void map_16MB_identity_kernel(pde32_t *pgd, uint32_t pt_phys_base) {
-    for (int pd = 0; pd < 4; pd++) {
+    for (int pd = 0; pd < 4; pd++) { //TOSEE --> Test avec 41 pour aller jusqu'à A1...
         uint32_t pt_phys = pt_phys_base + pd * PAGE_SIZE;
         pte32_t *pt = (pte32_t*)pt_phys;
         __clear_page(pt);
@@ -481,6 +482,7 @@ void tp() {
     //Charge le plan d'adressage de Tâche 1 dans le CPU et active la pagination (paging) en modifiant le registre CR0
     set_cr3((uint32_t)task1.pgd);
     uint32_t cr0 = get_cr0();
+    debug ("cr0: %d\n", (uint32_t)cr0);
     debug("tp() address: 0x%x\n", (uint32_t)tp);
     set_cr0(cr0 | 0x80000000); //d'après les messages de debug --> le crash se produit certainement ici
 
