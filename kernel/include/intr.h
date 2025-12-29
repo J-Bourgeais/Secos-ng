@@ -116,6 +116,6 @@ typedef struct interrupt_descriptor_table_register
    asm volatile ("lidt  %0"::"m"(val):"memory")
 
 void intr_init();
-void intr_hdlr(int_ctx_t*) __regparm__(1);
+uint32_t intr_hdlr(int_ctx_t*) __regparm__(1);
 
 #endif

@@ -39,7 +39,8 @@ eoi_pic1:
 idt_common:
         pusha
         mov     %esp, %eax
-        call    intr_hdlr
+        call    intr_hdlr 
+        mov     %eax, %esp /* Ligne ajoutee afin de gerer le switch (et donc le nouveau kernel_esp) */
 
 resume_from_intr:
         popa
