@@ -124,8 +124,8 @@ void setup_tss(void) {
 
     // Chargement du registre de tâche
     set_tr(gdt_krn_seg_sel(10));
-}
 
+}
 
 
 /* --- Gestion de la Pagination --- */
@@ -259,6 +259,7 @@ void tp() {
 
     /* --- Lancement Tâche 1 --- */
     current_task = &task1;
+    system_tss.s0.ss = gdt_krn_seg_sel(9);
     system_tss.s0.esp = (uint32_t)&__kernel_stack_user1_end__;
     
     // Raz du compteur partagé
@@ -266,10 +267,11 @@ void tp() {
     debug("[TP] Compteur initialise a 0 (phys: 0x%x)\n", PA_SHARED_PHYS);
 
     uint32_t u_esp = 0x00800000 + STACK_SZ;
-    //uint32_t u_cs  = (4 << 3) | 3;
-    //uint32_t u_ss  = (5 << 3) | 3;
-    uint32_t u_cs  = (1 << 3) ;
-    uint32_t u_ss  = (2 << 3) ;
+    uint32_t u_cs  = (4 << 3) | 3;
+    uint32_t u_ss  = (5 << 3) | 3;
+    //pour débugger
+    //uint32_t u_cs  = (1 << 3) ;
+    //uint32_t u_ss  = (2 << 3) ;
 
     debug("[TP] Jump vers User1 (EIP=0x%x, ESP=0x%x)...\n", (uint32_t)user1, u_esp);
 
@@ -280,4 +282,6 @@ void tp() {
         "pushl %0; pushl %1; pushl $0x202; pushl %2; pushl %3; iret"
         : : "r"(u_ss), "r"(u_esp), "r"(u_cs), "r"(user1) : "memory"
     );
+
+  
 }
