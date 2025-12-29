@@ -69,49 +69,92 @@ static void gdt_entry_init(int idx, uint32_t base, uint32_t limit, uint8_t type,
     gdt_table[idx].base_3  = (base >> 24) & 0xFF;
 }
 
+/* --- Nouvelle fonction pour les segments systèmes (TSS) --- */
+static void gdt_sys_entry_init(int idx, uint32_t base, uint32_t limit, uint8_t type, uint8_t dpl) {
+    gdt_table[idx].limit_1 = limit & 0xFFFF;
+    gdt_table[idx].base_1  = base & 0xFFFF;
+    gdt_table[idx].base_2  = (base >> 16) & 0xFF;
+    gdt_table[idx].type    = type;
+    gdt_table[idx].s       = 0; // IMPORTANT : S=0 pour la TSS
+    gdt_table[idx].dpl     = dpl;
+    gdt_table[idx].p       = 1;
+    gdt_table[idx].limit_2 = (limit >> 16) & 0xF;
+    gdt_table[idx].avl     = 1;
+    gdt_table[idx].l       = 0;
+    gdt_table[idx].d       = 1; // 32-bit
+    gdt_table[idx].g       = 0; // TSS souvent en octets, pas en pages
+    gdt_table[idx].base_3  = (base >> 24) & 0xFF;
+}
+
+
+// void setup_segmentation(void) {
+//     memset(gdt_table, 0, sizeof(gdt_table));
+
+//     // Segments Noyau (Index 1-3)
+//     gdt_entry_init(1, 0, 0xFFFFF, 11, 0); // Code Ring 0
+//     gdt_entry_init(2, 0, 0xFFFFF, 3, 0);  // Data/Stack Ring 0 (U1)
+//     gdt_entry_init(3, 0, 0xFFFFF, 3, 0);  // Data/Stack Ring 0 (U2)
+
+//     // Segments Utilisateurs (Index 4-8)
+//     gdt_entry_init(4, 0, 0xFFFFF, 11, 3); // Code U1
+//     gdt_entry_init(5, 0, 0xFFFFF, 3, 3);  // Stack U1
+//     gdt_entry_init(6, 0, 0xFFFFF, 11, 3); // Code U2
+//     gdt_entry_init(7, 0, 0xFFFFF, 3, 3);  // Stack U2
+//     gdt_entry_init(8, 0, 0xFFFFF, 3, 3);  // Shared Data
+    
+//     gdt_entry_init(9, 0, 0xFFFFF, 3, 0);  // Kernel Data global
+
+//     gdt_reg_t r_gdt = { .addr = (uint32_t)gdt_table, .limit = sizeof(gdt_table) - 1 };
+//     set_gdtr(r_gdt);
+
+//     set_cs(gdt_krn_seg_sel(1));
+//     set_ds((uint16_t)gdt_krn_seg_sel(9));
+//     set_ss((uint16_t)gdt_krn_seg_sel(9));
+// }
+
+
 void setup_segmentation(void) {
     memset(gdt_table, 0, sizeof(gdt_table));
 
-    // Segments Noyau (Index 1-3)
-    gdt_entry_init(1, 0, 0xFFFFF, 11, 0); // Code Ring 0
-    gdt_entry_init(2, 0, 0xFFFFF, 3, 0);  // Data/Stack Ring 0 (U1)
-    gdt_entry_init(3, 0, 0xFFFFF, 3, 0);  // Data/Stack Ring 0 (U2)
+    // Index 1-3 : Noyau (DPL 0)
+    gdt_entry_init(1, 0, 0xFFFFF, 11, 0); // Code
+    gdt_entry_init(2, 0, 0xFFFFF, 3, 0);  // Data (U1 kstack)
+    gdt_entry_init(3, 0, 0xFFFFF, 3, 0);  // Data (U2 kstack)
 
-    // Segments Utilisateurs (Index 4-8)
-    gdt_entry_init(4, 0, 0xFFFFF, 11, 3); // Code U1
-    gdt_entry_init(5, 0, 0xFFFFF, 3, 3);  // Stack U1
-    gdt_entry_init(6, 0, 0xFFFFF, 11, 3); // Code U2
-    gdt_entry_init(7, 0, 0xFFFFF, 3, 3);  // Stack U2
-    gdt_entry_init(8, 0, 0xFFFFF, 3, 3);  // Shared Data
-    
-    gdt_entry_init(9, 0, 0xFFFFF, 3, 0);  // Kernel Data global
+    // Index 4-5 : Tâche 1 Utilisateur (DPL 3) - C'EST ICI QUE CA COINCE
+    gdt_entry_init(4, 0, 0xFFFFF, 11, 3); // Code User 1
+    gdt_entry_init(5, 0, 0xFFFFF, 3, 3);  // Data/Stack User 1
+
+    // Index 6-7 : Tâche 2 Utilisateur (DPL 3)
+    gdt_entry_init(6, 0, 0xFFFFF, 11, 3); // Code User 2
+    gdt_entry_init(7, 0, 0xFFFFF, 3, 3);  // Data/Stack User 2
+
+    // Index 9 : Segment de données global noyau (pour DS/SS initial)
+    gdt_entry_init(9, 0, 0xFFFFF, 3, 0); 
+
+    // Index 10 : TSS (DPL 0, Type 9) - NE PAS UTILISER gdt_entry_init ici
+    // car le bit S doit être à 0 pour une TSS
+    setup_tss_descriptor(10); 
 
     gdt_reg_t r_gdt = { .addr = (uint32_t)gdt_table, .limit = sizeof(gdt_table) - 1 };
     set_gdtr(r_gdt);
-
-    set_cs(gdt_krn_seg_sel(1));
-    set_ds((uint16_t)gdt_krn_seg_sel(9));
-    set_ss((uint16_t)gdt_krn_seg_sel(9));
 }
 
 void setup_tss(void) {
     memset(&system_tss, 0, sizeof(tss_t));
-    system_tss.s0.ss = gdt_krn_seg_sel(9);
+    system_tss.s0.ss = gdt_krn_seg_sel(9); 
     
     uint32_t base = (uint32_t)&system_tss;
     uint32_t limit = sizeof(system_tss) - 1;
 
-    gdt_table[10].limit_1 = limit & 0xFFFF;
-    gdt_table[10].base_1  = base & 0xFFFF;
-    gdt_table[10].base_2  = (base >> 16) & 0xFF;
-    gdt_table[10].type    = 0x9; // TSS 32-bit available
-    gdt_table[10].s       = 0;
-    gdt_table[10].dpl     = 0;
-    gdt_table[10].p       = 1;
-    gdt_table[10].base_3  = (base >> 24) & 0xFF;
+    // Utilisation de la fonction système (S=0)
+    gdt_sys_entry_init(10, base, limit, 0x9, 0); 
 
+    // Chargement du registre de tâche
     set_tr(gdt_krn_seg_sel(10));
 }
+
+
 
 /* --- Gestion de la Pagination --- */
 
