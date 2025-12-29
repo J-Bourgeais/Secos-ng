@@ -1,4 +1,3 @@
-/* GPLv2 (c) Airbus - Revised Version */
 #include <debug.h>
 #include <segmem.h>
 #include <grub_mbi.h>
@@ -10,7 +9,6 @@
 #include <io.h>
 #include <../../tp_exam/task.h>
 
-
 extern info_t *info;
 
 /* --- Symboles Externes (Linker) --- */
@@ -20,19 +18,12 @@ extern uint32_t __kernel_stack_user1_end__, __kernel_stack_user2_end__;
 
 /* --- Configuration & Macros --- */
 #define SECTION_USER      __attribute__((section(".user")))
-#define SECTION_STACK_U   __attribute__((section(".user_data"), aligned(4096)))
 #define PAGE_SZ           4096
 #define STACK_SZ          0x1000
 
-// Mapping Virtuel des compteurs
 #define VA_SHARED_U1      ((void*)0xb0001000u)
 #define VA_SHARED_U2      ((void*)0x03a0c000u)
 #define PA_SHARED_PHYS    0x00802000u
-
-// typedef struct {
-//     uint32_t kstack_ptr; // ESP dans la pile noyau
-//     uint32_t cr3;    // Registre CR3
-// } process_t;
 
 process_t task1, task2;
 process_t *current_task = 0;
@@ -46,14 +37,16 @@ void SECTION_USER user1() {
     while (1) {
         for (volatile int i = 0; i < 3500000; i++) asm volatile("nop");
         (*cnt)++;
+        // Note: On ne peut pas mettre de debug() ici car on est en Ring 3
     }
 }
 
 void SECTION_USER user2() {
     volatile uint32_t *cnt = (volatile uint32_t*)VA_SHARED_U2;
     while (1) {
-        // Appel Système (INT 0x80) pour affichage
+        // Appel Système (INT 0x80) pour affichage par le noyau
         asm volatile("movl %0, %%eax; int $0x80" : : "r"(cnt) : "eax", "memory");
+        for (volatile int i = 0; i < 1000000; i++) asm volatile("nop");
     }
 }
 
@@ -216,15 +209,24 @@ void setup_hardware(uint32_t tick_hz) {
 }
 
 void tp() {
+    debug("[TP] Debut de l'initialisation...\n");
+
     setup_segmentation();
+    debug("[TP] Segmentation OK\n");
+
     setup_tss();
+    debug("[TP] TSS OK\n");
+
     setup_paging();
+    debug("[TP] Tables de pages OK\n");
     
     // Activation Pagination
     set_cr3(task1.cr3);
     set_cr0(get_cr0() | 0x80000000);
+    debug("[TP] Pagination activee (CR0.PG=1)\n");
 
     setup_hardware(50);
+    debug("[TP] Materiel (PIT/PIC) pret\n");
 
     /* --- Préparation du contexte Tâche 2 --- */
     uint32_t *kstack = (uint32_t*)&__kernel_stack_user2_end__;
@@ -232,11 +234,12 @@ void tp() {
     
     memset(ctx, 0, sizeof(int_ctx_t));
     ctx->eip.raw = (uint32_t)user2;
-    ctx->cs.raw  = (6 << 3) | 3;   // GDT 6, RPL 3
-    ctx->ss.raw  = (7 << 3) | 3;   // GDT 7, RPL 3
+    ctx->cs.raw  = (6 << 3) | 3;   
+    ctx->ss.raw  = (7 << 3) | 3;   
     ctx->esp.raw = 0x00801000 + STACK_SZ;
-    ctx->eflags.raw = 0x202;       // IF = 1
+    ctx->eflags.raw = 0x202;       
     task2.kstack_ptr = (uint32_t)ctx;
+    debug("[TP] Contexte Task2 pret (ESP0=0x%x)\n", task2.kstack_ptr);
 
     /* --- Lancement Tâche 1 --- */
     current_task = &task1;
@@ -244,12 +247,16 @@ void tp() {
     
     // Raz du compteur partagé
     *(volatile uint32_t*)PA_SHARED_PHYS = 0;
+    debug("[TP] Compteur initialise a 0 (phys: 0x%x)\n", PA_SHARED_PHYS);
 
     uint32_t u_esp = 0x00800000 + STACK_SZ;
     uint32_t u_cs  = (4 << 3) | 3;
     uint32_t u_ss  = (5 << 3) | 3;
 
-    debug("Système prêt. Switch vers User1...\n");
+    debug("[TP] Jump vers User1 (EIP=0x%x, ESP=0x%x)...\n", user1, u_esp);
+
+    // On active les interruptions juste avant le saut
+    asm volatile("sti"); 
 
     asm volatile(
         "pushl %0; pushl %1; pushl $0x202; pushl %2; pushl %3; iret"
