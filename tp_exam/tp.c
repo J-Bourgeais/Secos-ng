@@ -35,7 +35,8 @@ seg_desc_t gdt_table[11];
 void SECTION_USER user1() {
     volatile uint32_t *cnt = (volatile uint32_t*)VA_SHARED_U1;
     while (1) {
-        for (volatile int i = 0; i < 3500000; i++) asm volatile("nop");
+
+        for (volatile int i = 0; i < 500000; i++) asm volatile("nop");
         (*cnt)++;
         // Note: On ne peut pas mettre de debug() ici car on est en Ring 3
     }
@@ -46,7 +47,7 @@ void SECTION_USER user2() {
     while (1) {
         // Appel Système (INT 0x80) pour affichage par le noyau
         asm volatile("movl %0, %%eax; int $0x80" : : "r"(cnt) : "eax", "memory");
-        for (volatile int i = 0; i < 1000000; i++) asm volatile("nop");
+        for (volatile int i = 0; i < 2000000; i++) asm volatile("nop");
     }
 }
 
@@ -250,10 +251,12 @@ void tp() {
     debug("[TP] Compteur initialise a 0 (phys: 0x%x)\n", PA_SHARED_PHYS);
 
     uint32_t u_esp = 0x00800000 + STACK_SZ;
-    uint32_t u_cs  = (4 << 3) | 3;
-    uint32_t u_ss  = (5 << 3) | 3;
+    //uint32_t u_cs  = (4 << 3) | 3;
+    //uint32_t u_ss  = (5 << 3) | 3;
+    uint32_t u_cs  = (1 << 3) ;
+    uint32_t u_ss  = (2 << 3) ;
 
-    debug("[TP] Jump vers User1 (EIP=0x%x, ESP=0x%x)...\n", user1, u_esp);
+    debug("[TP] Jump vers User1 (EIP=0x%x, ESP=0x%x)...\n", (uint32_t)user1, u_esp);
 
     // On active les interruptions juste avant le saut
     asm volatile("sti"); 
