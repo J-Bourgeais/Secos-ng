@@ -34,9 +34,10 @@ seg_desc_t gdt_table[11];
 
 void SECTION_USER user1() {
     volatile uint32_t *cnt = (volatile uint32_t*)VA_SHARED_U1;
+    //*cnt=1234;
     while (1) {
 
-        for (volatile int i = 0; i < 500000; i++) asm volatile("nop");
+        for (volatile int i = 0; i < 10000000; i++) asm volatile("nop");
         (*cnt)++;
         // Note: On ne peut pas mettre de debug() ici car on est en Ring 3
     }
@@ -47,7 +48,7 @@ void SECTION_USER user2() {
     while (1) {
         // Appel Système (INT 0x80) pour affichage par le noyau
         asm volatile("movl %0, %%eax; int $0x80" : : "r"(cnt) : "eax", "memory");
-        for (volatile int i = 0; i < 2000000; i++) asm volatile("nop");
+        for (volatile int i = 0; i < 100000; i++) asm volatile("nop");
     }
 }
 
@@ -114,6 +115,7 @@ void setup_segmentation(void) {
 
 void setup_tss(void) {
     memset(&system_tss, 0, sizeof(tss_t));
+    //system_tss.iomap=sizeof(tss_t);
     system_tss.s0.ss = gdt_krn_seg_sel(9); 
     
     uint32_t base = (uint32_t)&system_tss;
@@ -160,13 +162,21 @@ void setup_paging(void) {
     uint32_t u1_pgd = 0x00610000;
     uint32_t u2_pgd = 0x00620000;
 
+    memset((void*)0x612000, 0, PAGE_SZ);
+    memset((void*)0x613000, 0, PAGE_SZ);
+    memset((void*)0x615000, 0, PAGE_SZ);
+
+    memset((void*)0x622000, 0, PAGE_SZ);
+    memset((void*)0x623000, 0, PAGE_SZ);
+    memset((void*)0x625000, 0, PAGE_SZ);
+
     // --- CONFIGURATION TÂCHE 1 ---
     create_base_pgd(u1_pgd, 0x611000, 0x614000);
     
     // 1. Code Utilisateur (Mapping identité 4MB -> 8MB)
     pte32_t *ptb1_u1 = (pte32_t*)0x612000; 
     for(int i=0; i<512; i++) pg_set_entry(&ptb1_u1[i], PG_USR | PG_RW, 1024 + i);
-    for(int i=512; i<1024; i++) pg_set_entry(&ptb1_u1[i], PG_KRN | PG_RW, 1024 + i);
+    for(int i=512; i<1024; i++) pg_set_entry(&ptb1_u1[i], PG_KRN | PG_RW, 1024 + i);//PH_KRN
     pg_set_entry(&((pde32_t*)u1_pgd)[1], PG_USR | PG_RW, page_get_nr(0x612000));
 
     // 2. Pile User 1 (0x800000) et Accès Initial Noyau (0x802000)
@@ -174,12 +184,22 @@ void setup_paging(void) {
     pg_set_entry(&((pde32_t*)u1_pgd)[2], PG_USR | PG_RW, page_get_nr(0x613000));
     // Pile User 1
     pg_set_entry(&((pte32_t*)0x613000)[pt32_get_idx(0x800000)], PG_USR | PG_RW, page_get_nr(0x800000));
+    
     // Mapping pour l'initialisation du compteur par le noyau à l'adresse 0x802000
     pg_set_entry(&((pte32_t*)0x613000)[pt32_get_idx(0x802000)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
 
     // 3. Mapping Virtuel du compteur pour User 1 (VA_SHARED_U1)
     pg_set_entry(&((pde32_t*)u1_pgd)[pd32_get_idx(VA_SHARED_U1)], PG_USR | PG_RW, page_get_nr(0x615000));
     pg_set_entry(&((pte32_t*)0x615000)[pt32_get_idx(VA_SHARED_U1)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
+
+    pg_set_entry(&((pte32_t*)0x613000)[pt32_get_idx(0x801000)], PG_USR | PG_RW, page_get_nr(0x801000));
+    pg_set_entry(&((pde32_t*)u1_pgd)[pd32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(0x625000));
+
+    pg_set_entry(&((pde32_t*)u1_pgd)[pd32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(0x616000));
+    pg_set_entry(&((pte32_t*)0x616000)[pt32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
+
+
+
 
     task1.cr3 = u1_pgd;
 
@@ -201,6 +221,10 @@ void setup_paging(void) {
     // 3. Mapping Virtuel du compteur pour User 2 (VA_SHARED_U2)
     pg_set_entry(&((pde32_t*)u2_pgd)[pd32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(0x625000));
     pg_set_entry(&((pte32_t*)0x625000)[pt32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
+
+    pg_set_entry(&((pte32_t*)0x623000)[pt32_get_idx(0x800000)], PG_USR | PG_RW, page_get_nr(0x800000));
+    pg_set_entry(&((pde32_t*)u2_pgd)[pd32_get_idx(VA_SHARED_U1)], PG_USR | PG_RW, page_get_nr(0x615000));
+
 
     task2.cr3 = u2_pgd;
 }
@@ -241,11 +265,13 @@ void tp() {
     set_cr0(get_cr0() | 0x80000000);
     debug("[TP] Pagination activee (CR0.PG=1)\n");
 
-    setup_hardware(50);
+    //setup_hardware(50);
+    intr_init();//débogger
     debug("[TP] Materiel (PIT/PIC) pret\n");
 
     /* --- Préparation du contexte Tâche 2 --- */
-    uint32_t *kstack = (uint32_t*)&__kernel_stack_user2_end__;
+    //uint32_t *kstack = (uint32_t*)&__kernel_stack_user2_end__;
+    uint32_t *kstack = (uint32_t*)0x00c00000 + STACK_SZ;
     int_ctx_t *ctx = (int_ctx_t*)((uint8_t*)kstack - sizeof(int_ctx_t));
     
     memset(ctx, 0, sizeof(int_ctx_t));
@@ -260,8 +286,9 @@ void tp() {
     /* --- Lancement Tâche 1 --- */
     current_task = &task1;
     system_tss.s0.ss = gdt_krn_seg_sel(9);
-    system_tss.s0.esp = (uint32_t)&__kernel_stack_user1_end__;
-    
+    //system_tss.s0.esp = (uint32_t)&__kernel_stack_user1_end__;
+    system_tss.s0.esp = (uint32_t)(0x00c00000+STACK_SZ);
+
     // Raz du compteur partagé
     *(volatile uint32_t*)PA_SHARED_PHYS = 0;
     debug("[TP] Compteur initialise a 0 (phys: 0x%x)\n", PA_SHARED_PHYS);
@@ -276,7 +303,12 @@ void tp() {
     debug("[TP] Jump vers User1 (EIP=0x%x, ESP=0x%x)...\n", (uint32_t)user1, u_esp);
 
     // On active les interruptions juste avant le saut
-    asm volatile("sti"); 
+    //asm volatile("sti"); 
+
+    //*(volatile uint32_t*)PA_SHARED_PHYS = 42; 
+    //debug("[TP] Compteur force a 42 pour test\n");
+
+
 
     asm volatile(
         "pushl %0; pushl %1; pushl $0x202; pushl %2; pushl %3; iret"
