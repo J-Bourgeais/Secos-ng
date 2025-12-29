@@ -147,32 +147,52 @@ uint32_t create_base_pgd(uint32_t pgd_pa, uint32_t ptb_kern_pa, uint32_t ptb_sta
 }
 
 void setup_paging(void) {
-    // Adresses physiques arbitraires pour les tables
+    // Adresses physiques pour les structures de pagination
     uint32_t u1_pgd = 0x00610000;
     uint32_t u2_pgd = 0x00620000;
 
-    // Configuration Tâche 1
+    // --- CONFIGURATION TÂCHE 1 ---
     create_base_pgd(u1_pgd, 0x611000, 0x614000);
-    pte32_t *ptb1_u1 = (pte32_t*)0x612000; 
-    //pte32_t *ptb_sh_u1 = (pte32_t*)0x615000;
     
-    // Identity map code user (4-6MB)
+    // 1. Code Utilisateur (Mapping identité 4MB -> 8MB)
+    pte32_t *ptb1_u1 = (pte32_t*)0x612000; 
     for(int i=0; i<512; i++) pg_set_entry(&ptb1_u1[i], PG_USR | PG_RW, 1024 + i);
     for(int i=512; i<1024; i++) pg_set_entry(&ptb1_u1[i], PG_KRN | PG_RW, 1024 + i);
     pg_set_entry(&((pde32_t*)u1_pgd)[1], PG_USR | PG_RW, page_get_nr(0x612000));
 
-    // Shared & User Stack
+    // 2. Pile User 1 (0x800000) et Accès Initial Noyau (0x802000)
+    // On utilise la table à 0x613000 pour l'index PDE 2 (zone 8MB-12MB)
     pg_set_entry(&((pde32_t*)u1_pgd)[2], PG_USR | PG_RW, page_get_nr(0x613000));
+    // Pile User 1
     pg_set_entry(&((pte32_t*)0x613000)[pt32_get_idx(0x800000)], PG_USR | PG_RW, page_get_nr(0x800000));
-    
+    // Mapping pour l'initialisation du compteur par le noyau à l'adresse 0x802000
+    pg_set_entry(&((pte32_t*)0x613000)[pt32_get_idx(0x802000)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
+
+    // 3. Mapping Virtuel du compteur pour User 1 (VA_SHARED_U1)
     pg_set_entry(&((pde32_t*)u1_pgd)[pd32_get_idx(VA_SHARED_U1)], PG_USR | PG_RW, page_get_nr(0x615000));
     pg_set_entry(&((pte32_t*)0x615000)[pt32_get_idx(VA_SHARED_U1)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
 
     task1.cr3 = u1_pgd;
 
-    // Configuration Tâche 2 (similaire avec adresses spécifiques)
+    // --- CONFIGURATION TÂCHE 2 ---
     create_base_pgd(u2_pgd, 0x621000, 0x624000);
-    // ... (Répéter pour U2 avec VA_SHARED_U2 et pile 0x801000)
+
+    // 1. Code Utilisateur (Même mapping pour que user2 soit visible)
+    pte32_t *ptb1_u2 = (pte32_t*)0x622000;
+    for(int i=0; i<1024; i++) pg_set_entry(&ptb1_u2[i], PG_USR | PG_RW, 1024 + i);
+    pg_set_entry(&((pde32_t*)u2_pgd)[1], PG_USR | PG_RW, page_get_nr(0x622000));
+
+    // 2. Pile User 2 (0x801000) et Accès Compteur
+    pg_set_entry(&((pde32_t*)u2_pgd)[2], PG_USR | PG_RW, page_get_nr(0x623000));
+    // Pile User 2
+    pg_set_entry(&((pte32_t*)0x623000)[pt32_get_idx(0x801000)], PG_USR | PG_RW, page_get_nr(0x801000));
+    // Accès compteur via adresse physique (0x802000)
+    pg_set_entry(&((pte32_t*)0x623000)[pt32_get_idx(0x802000)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
+
+    // 3. Mapping Virtuel du compteur pour User 2 (VA_SHARED_U2)
+    pg_set_entry(&((pde32_t*)u2_pgd)[pd32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(0x625000));
+    pg_set_entry(&((pte32_t*)0x625000)[pt32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
+
     task2.cr3 = u2_pgd;
 }
 
