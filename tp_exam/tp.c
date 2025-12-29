@@ -309,18 +309,17 @@ static void map_shared_page_user(pde32_t *pgd, uint32_t virt, uint32_t pt_phys, 
     pg_set_entry(&pt[pt32_get_idx(virt)], PG_USR | PG_RW, page_get_nr(shared_phys));
 }
 
-
 //"Le noyau est identity mappé."
 /* Identity map kernel (U/S=0) pour au moins 16 MiB --> Crée une grande zone (16 Mo) où l'adresse virtuelle est la même que l'adresse physique, mais seul le noyau peut y accéder*/
-static void map_16MB_identity_kernel(pde32_t *pgd, uint32_t pt_phys_base) {
-    for (int pd = 0; pd < 4; pd++) { //TOSEE --> Test avec 41 pour aller jusqu'à A1...
+static void map_64MB_identity_kernel(pde32_t *pgd, uint32_t pt_phys_base) {
+    for (int pd = 0; pd < 16; pd++) { // 16 * 4MB = 64MB
         uint32_t pt_phys = pt_phys_base + pd * PAGE_SIZE;
         pte32_t *pt = (pte32_t*)pt_phys;
         __clear_page(pt);
-        pg_set_entry(&pgd[pd], PG_RW, page_get_nr(pt_phys)); /* U/S=0 */
+        pg_set_entry(&pgd[pd], PG_RW, page_get_nr(pt_phys));
         for (int i = 0; i < 1024; i++) {
             uint32_t phys = (pd << 22) | (i << 12);
-            pg_set_entry(&pt[i], PG_RW, page_get_nr(phys));   /* U/S=0 */
+            pg_set_entry(&pt[i], PG_RW, page_get_nr(phys));
         }
     }
 }
@@ -340,6 +339,8 @@ static void build_initial_iret_frame(task_t *t) {
     t->esp0 = sp;
 }
 
+
+
 /*  Initialisation d'une tâche  */
 // Fonction d'initialisation complète de la structure task_t et de son espace d'adressage virtuel.
 void init_task(task_t *task, uint32_t pgd_phys, uint32_t code_base_virt, uint32_t code_pt_phys, uint32_t user_stack_phys,uint32_t kern_stack_phys, uint32_t shared_virt, uint32_t shared_pt_phys, uint32_t eip,uint32_t kern_pt_base) {
@@ -352,7 +353,7 @@ void init_task(task_t *task, uint32_t pgd_phys, uint32_t code_base_virt, uint32_
 
     __clear_page((void*)pgd_phys);
 
-    map_16MB_identity_kernel((pde32_t*)pgd_phys, kern_pt_base);
+    map_64MB_identity_kernel((pde32_t*)pgd_phys, kern_pt_base);
     map_4MB_identity_user((pde32_t*)pgd_phys, code_base_virt, code_pt_phys);
     map_shared_page_user((pde32_t*)pgd_phys, shared_virt, shared_pt_phys, SHARED_PHYS);
 
@@ -408,7 +409,7 @@ static void enter_userland_initial(task_t *t) {
 }
 
 void tp() {
-    debug("TP exam start\n");
+    debug("TP exam start\n");    asm volatile("cli");
     
     //Initialise à zéro la page mémoire physique partagée
     memset((void*)SHARED_PHYS, 0, PAGE_SIZE);

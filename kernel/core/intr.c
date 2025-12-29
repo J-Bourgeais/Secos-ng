@@ -7,6 +7,9 @@ extern info_t *info;
 extern void idt_trampoline();
 static int_desc_t IDT[IDT_NR_DESC];
 
+
+
+
 void intr_init()
 {
    idt_reg_t idtr;
@@ -23,7 +26,6 @@ void intr_init()
    idtr.limit = sizeof(IDT) - 1;
    set_idtr(idtr);
 }
-
 void __regparm__(1) intr_hdlr(int_ctx_t *ctx)
 {
    debug("\nIDT event\n"
