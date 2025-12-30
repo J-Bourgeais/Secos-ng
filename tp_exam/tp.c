@@ -12,8 +12,7 @@
 
 extern info_t *info;
 
-
-/* --- Symboles Externes (Linker) --- */
+/* --- External Linker Symbols --- */
 extern uint32_t __kernel_start__, __kernel_end__;
 extern uint32_t __user_start__, __user_end__;
 extern uint32_t __kernel_stack_user1_end__, __kernel_stack_user2_end__;
@@ -24,7 +23,7 @@ extern uint32_t __kernel_stack_user1_end__, __kernel_stack_user2_end__;
 #define PAGE_SZ           4096
 #define STACK_SZ          0x1000
 
-
+/* Shared memory definitions */
 #define VA_SHARED_U1      ((void*)0xb0001000u)
 #define VA_SHARED_U2      ((void*)0x03a0c000u)
 #define PA_SHARED_PHYS    0x00802000u
@@ -35,34 +34,43 @@ process_t *current_task = 0;
 tss_t system_tss;
 seg_desc_t gdt_table[11];
 
+/* --- User Interface (System Call Wrapper) --- */
 
-/* --- Fonctions Utilisateurs --- */
+/**
+ * Encapsulates the 0x80 interrupt for the counter display.
+ * @param counter: Virtual address of the counter in Ring 3.
+ */
+void sys_counter(uint32_t *counter) {
+    asm volatile("movl %0, %%eax; int $0x80" : : "r"(counter) : "eax", "memory");
+}
 
+/* --- User Tasks --- */
 
+/**
+ * Task 1: Increments a counter in the shared memory page.
+ */
 void SECTION_USER user1() {
     volatile uint32_t *cnt = (volatile uint32_t*)VA_SHARED_U1;
-    //*cnt=1234;
     while (1) {
 
 
         for (volatile int i = 0; i < 10000000; i++) asm volatile("nop");
         (*cnt)++;
-        // Note: On ne peut pas mettre de debug() ici car on est en Ring 3
     }
 }
 
-
+/**
+ * Task 2: Reads the counter from shared memory and requests display via syscall.
+ */
 void SECTION_USER user2() {
     volatile uint32_t *cnt = (volatile uint32_t*)VA_SHARED_U2;
     while (1) {
-        // Appel Système (INT 0x80) pour affichage par le noyau
-        asm volatile("movl %0, %%eax; int $0x80" : : "r"(cnt) : "eax", "memory");
+        sys_counter((uint32_t*)cnt);
         for (volatile int i = 0; i < 100000; i++) asm volatile("nop");
     }
 }
 
-
-/* --- Gestion de la Segmentation --- */
+/* --- GDT / Segmentation Management --- */
 
 
 static void gdt_entry_init(int idx, uint32_t base, uint32_t limit, uint8_t type, uint8_t dpl) {
@@ -70,62 +78,55 @@ static void gdt_entry_init(int idx, uint32_t base, uint32_t limit, uint8_t type,
     gdt_table[idx].base_1  = base & 0xFFFF;
     gdt_table[idx].base_2  = (base >> 16) & 0xFF;
     gdt_table[idx].type    = type;
-    gdt_table[idx].s       = 1;
+    gdt_table[idx].s       = 1; // 1 for code/data segments
     gdt_table[idx].dpl     = dpl;
     gdt_table[idx].p       = 1;
     gdt_table[idx].limit_2 = (limit >> 16) & 0xF;
     gdt_table[idx].avl     = 1;
     gdt_table[idx].l       = 0;
     gdt_table[idx].d       = 1;
-    gdt_table[idx].g       = 1;
+    gdt_table[idx].g       = 1; // 4KB granularity
     gdt_table[idx].base_3  = (base >> 24) & 0xFF;
 }
 
-
-/* --- Nouvelle fonction pour les segments systèmes (TSS) --- */
 static void gdt_sys_entry_init(int idx, uint32_t base, uint32_t limit, uint8_t type, uint8_t dpl) {
     gdt_table[idx].limit_1 = limit & 0xFFFF;
     gdt_table[idx].base_1  = base & 0xFFFF;
     gdt_table[idx].base_2  = (base >> 16) & 0xFF;
     gdt_table[idx].type    = type;
-    gdt_table[idx].s       = 0; // IMPORTANT : S=0 pour la TSS
+    gdt_table[idx].s       = 0; // 0 for System segments (TSS)
     gdt_table[idx].dpl     = dpl;
     gdt_table[idx].p       = 1;
     gdt_table[idx].limit_2 = (limit >> 16) & 0xF;
     gdt_table[idx].avl     = 1;
     gdt_table[idx].l       = 0;
-    gdt_table[idx].d       = 1; // 32-bit
-    gdt_table[idx].g       = 0; // TSS souvent en octets, pas en pages
+    gdt_table[idx].d       = 1;
+    gdt_table[idx].g       = 0; // Byte granularity for TSS
     gdt_table[idx].base_3  = (base >> 24) & 0xFF;
 }
-
-
-
 
 void setup_segmentation(void) {
     memset(gdt_table, 0, sizeof(gdt_table));
 
+    /* Kernel Segments (Index 1-3) */
+    gdt_entry_init(1, 0, 0xFFFFF, 11, 0); // Ring 0 Code
+    gdt_entry_init(2, 0, 0xFFFFF, 3, 0);  // Ring 0 Data (Task 1 Context)
+    gdt_entry_init(3, 0, 0xFFFFF, 3, 0);  // Ring 0 Data (Task 2 Context)
 
-    // Segments Noyau (Index 1-3)
-    gdt_entry_init(1, 0, 0xFFFFF, 11, 0); // Code Ring 0
-    gdt_entry_init(2, 0, 0xFFFFF, 3, 0);  // Data/Stack Ring 0 (U1)
-    gdt_entry_init(3, 0, 0xFFFFF, 3, 0);  // Data/Stack Ring 0 (U2)
-
-
-    // Segments Utilisateurs (Index 4-8)
-    gdt_entry_init(4, 0, 0xFFFFF, 11, 3); // Code U1
-    gdt_entry_init(5, 0, 0xFFFFF, 3, 3);  // Stack U1
-    gdt_entry_init(6, 0, 0xFFFFF, 11, 3); // Code U2
-    gdt_entry_init(7, 0, 0xFFFFF, 3, 3);  // Stack U2
-    gdt_entry_init(8, 0, 0xFFFFF, 3, 3);  // Shared Data
-   
-    gdt_entry_init(9, 0, 0xFFFFF, 3, 0);  // Kernel Data global
+    /* User Segments (Index 4-8) */
+    gdt_entry_init(4, 0, 0xFFFFF, 11, 3); // User 1 Code
+    gdt_entry_init(5, 0, 0xFFFFF, 3, 3);  // User 1 Stack
+    gdt_entry_init(6, 0, 0xFFFFF, 11, 3); // User 2 Code
+    gdt_entry_init(7, 0, 0xFFFFF, 3, 3);  // User 2 Stack
+    gdt_entry_init(8, 0, 0xFFFFF, 3, 3);  // Shared Memory Segment
+    
+    gdt_entry_init(9, 0, 0xFFFFF, 3, 0);  // Global Kernel Data
 
 
     gdt_reg_t r_gdt = { .addr = (uint32_t)gdt_table, .limit = sizeof(gdt_table) - 1 };
     set_gdtr(r_gdt);
 
-
+    /* Update Selectors */
     set_cs(gdt_krn_seg_sel(1));
     set_ds((uint16_t)gdt_krn_seg_sel(9));
     set_ss((uint16_t)gdt_krn_seg_sel(9));
@@ -134,27 +135,16 @@ void setup_segmentation(void) {
 
 void setup_tss(void) {
     memset(&system_tss, 0, sizeof(tss_t));
-    //system_tss.iomap=sizeof(tss_t);
-    system_tss.s0.ss = gdt_krn_seg_sel(9);
-   
+    system_tss.s0.ss = gdt_krn_seg_sel(9); 
+    
     uint32_t base = (uint32_t)&system_tss;
     uint32_t limit = sizeof(system_tss) - 1;
 
-
-    // Utilisation de la fonction système (S=0)
-    gdt_sys_entry_init(10, base, limit, 0x9, 0);
-
-
-    // Chargement du registre de tâche
+    gdt_sys_entry_init(10, base, limit, 0x9, 0); 
     set_tr(gdt_krn_seg_sel(10));
-
-
 }
 
-
-
-
-/* --- Gestion de la Pagination --- */
+/* --- Paging Management --- */
 
 
 static void map_region_identity(pte32_t *ptb, uint32_t start_frame, uint32_t count, uint32_t flags) {
@@ -163,8 +153,9 @@ static void map_region_identity(pte32_t *ptb, uint32_t start_frame, uint32_t cou
     }
 }
 
-
-// Initialise un PGD de base avec l'identité noyau (0-4MB et 12-16MB)
+/**
+ * Initializes a Page Directory with Kernel Identity mapping (0-4MB and 12-16MB).
+ */
 uint32_t create_base_pgd(uint32_t pgd_pa, uint32_t ptb_kern_pa, uint32_t ptb_stack_pa) {
     pde32_t *pgd = (pde32_t*)pgd_pa;
     pte32_t *ptb0 = (pte32_t*)ptb_kern_pa;
@@ -175,11 +166,11 @@ uint32_t create_base_pgd(uint32_t pgd_pa, uint32_t ptb_kern_pa, uint32_t ptb_sta
     memset(ptb0, 0, PAGE_SZ);
     memset(ptb3, 0, PAGE_SZ);
 
-
+    /* 0 - 4MB Identity Mapping */
     map_region_identity(ptb0, 0, 1024, PG_KRN | PG_RW);
     pg_set_entry(&pgd[0], PG_KRN | PG_RW, page_get_nr(ptb_kern_pa));
 
-
+    /* 12 - 16MB Identity Mapping (Kernel Stacks) */
     map_region_identity(ptb3, 3072, 1024, PG_KRN | PG_RW);
     pg_set_entry(&pgd[3], PG_KRN | PG_RW, page_get_nr(ptb_stack_pa));
 
@@ -189,35 +180,30 @@ uint32_t create_base_pgd(uint32_t pgd_pa, uint32_t ptb_kern_pa, uint32_t ptb_sta
 
 
 void setup_paging(void) {
-    // Adresses physiques pour les structures de pagination
     uint32_t u1_pgd = 0x00610000;
     uint32_t u2_pgd = 0x00620000;
 
-
+    /* Clean memory for Page Tables */
     memset((void*)0x612000, 0, PAGE_SZ);
     memset((void*)0x613000, 0, PAGE_SZ);
     memset((void*)0x615000, 0, PAGE_SZ);
-
-
     memset((void*)0x622000, 0, PAGE_SZ);
     memset((void*)0x623000, 0, PAGE_SZ);
     memset((void*)0x625000, 0, PAGE_SZ);
 
-
-    // --- CONFIGURATION TÂCHE 1 ---
+    /* --- TASK 1 CONFIGURATION --- */
     create_base_pgd(u1_pgd, 0x611000, 0x614000);
-   
-    // 1. Code Utilisateur (Mapping identité 4MB -> 8MB)
-    pte32_t *ptb1_u1 = (pte32_t*)0x612000;
+    
+    /* 1. User Code (Identity Map 4MB -> 8MB) */
+    pte32_t *ptb1_u1 = (pte32_t*)0x612000; 
     for(int i=0; i<512; i++) pg_set_entry(&ptb1_u1[i], PG_USR | PG_RW, 1024 + i);
-    for(int i=512; i<1024; i++) pg_set_entry(&ptb1_u1[i], PG_KRN | PG_RW, 1024 + i);//PH_KRN
+    for(int i=512; i<1024; i++) pg_set_entry(&ptb1_u1[i], PG_KRN | PG_RW, 1024 + i);
     pg_set_entry(&((pde32_t*)u1_pgd)[1], PG_USR | PG_RW, page_get_nr(0x612000));
 
 
     // 2. Pile User 1 (0x800000) et Accès Initial Noyau (0x802000)
     // On utilise la table à 0x613000 pour l'index PDE 2 (zone 8MB-12MB)
     pg_set_entry(&((pde32_t*)u1_pgd)[2], PG_USR | PG_RW, page_get_nr(0x613000));
-    // Pile User 1
     pg_set_entry(&((pte32_t*)0x613000)[pt32_get_idx(0x800000)], PG_USR | PG_RW, page_get_nr(0x800000));
    
     // Mapping pour l'initialisation du compteur par le noyau à l'adresse 0x802000
@@ -258,9 +244,7 @@ void setup_paging(void) {
 
     // 2. Pile User 2 (0x801000) et Accès Compteur
     pg_set_entry(&((pde32_t*)u2_pgd)[2], PG_USR | PG_RW, page_get_nr(0x623000));
-    // Pile User 2
     pg_set_entry(&((pte32_t*)0x623000)[pt32_get_idx(0x801000)], PG_USR | PG_RW, page_get_nr(0x801000));
-    // Accès compteur via adresse physique (0x802000)
     pg_set_entry(&((pte32_t*)0x623000)[pt32_get_idx(0x802000)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
 
 
@@ -270,8 +254,6 @@ void setup_paging(void) {
 
 
     pg_set_entry(&((pte32_t*)0x623000)[pt32_get_idx(0x800000)], PG_USR | PG_RW, page_get_nr(0x800000));
-    pg_set_entry(&((pde32_t*)u2_pgd)[pd32_get_idx(VA_SHARED_U1)], PG_USR | PG_RW, page_get_nr(0x615000));
-
 
 
 
@@ -303,7 +285,7 @@ void setup_hardware(uint32_t tick_hz) {
 
 
 void tp() {
-    debug("[TP] Debut de l'initialisation...\n");
+    debug("[TP] Starting initialization...\n");
 
 
     setup_segmentation();
@@ -320,7 +302,7 @@ void tp() {
     // Activation Pagination
     set_cr3(task1.cr3);
     set_cr0(get_cr0() | 0x80000000);
-    debug("[TP] Pagination activee (CR0.PG=1)\n");
+    debug("[TP] Paging enabled (CR0.PG=1)\n");
 
 
     //setup_hardware(50);
@@ -340,19 +322,18 @@ void tp() {
     ctx->esp.raw = 0x00801000 + STACK_SZ;
     ctx->eflags.raw = 0x202;      
     task2.kstack_ptr = (uint32_t)ctx;
-    debug("[TP] Contexte Task2 pret (ESP0=0x%x)\n", task2.kstack_ptr);
+    debug("[TP] Task2 context ready (ESP0=0x%x)\n", task2.kstack_ptr);
 
 
     /* --- Lancement Tâche 1 --- */
     current_task = &task1;
     system_tss.s0.ss = gdt_krn_seg_sel(9);
-    //system_tss.s0.esp = (uint32_t)&__kernel_stack_user1_end__;
-    system_tss.s0.esp = (uint32_t)(0x00c00000+STACK_SZ);
+    system_tss.s0.esp = (uint32_t)(0x00c00000 + STACK_SZ);
 
 
     // Raz du compteur partagé
     *(volatile uint32_t*)PA_SHARED_PHYS = 0;
-    debug("[TP] Compteur initialise a 0 (phys: 0x%x)\n", PA_SHARED_PHYS);
+    debug("[TP] Counter initialized to 0\n");
 
 
     uint32_t u_esp = 0x00800000 + STACK_SZ;
@@ -374,6 +355,7 @@ void tp() {
     //debug("[TP] Compteur force a 42 pour test\n");
 
 
+    debug("[TP] Switching to User1 (EIP=0x%x, ESP=0x%x)...\n", (uint32_t)user1, u_esp);
 
 
 
