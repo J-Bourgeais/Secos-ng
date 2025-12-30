@@ -7,7 +7,7 @@
 #include <cr.h>
 #include <../../tp_exam/task.h>
 
-
+#define STACK_SZ          0x1000
 //#include <../../tp_exam/tp.c>
 
 extern process_t task1;
@@ -152,7 +152,8 @@ uint32_t __regparm__(1) intr_hdlr(int_ctx_t *ctx)
             set_cr3(task2.cr3);
 
             // Mise a jour system_tss avec bonne pile kernel pour la prochaine interruption
-            system_tss.s0.esp = (uint32_t)&__kernel_stack_user2_end__; // adresse 0x00c0 2000
+            //system_tss.s0.esp = (uint32_t)&__kernel_stack_user2_end__; // adresse 0x00c0 2000
+            system_tss.s0.esp = (uint32_t)0x00c01000 + STACK_SZ;
             system_tss.s0.ss  = gdt_krn_seg_sel(3);
 
             // SWITCH DEBUG
@@ -174,7 +175,8 @@ uint32_t __regparm__(1) intr_hdlr(int_ctx_t *ctx)
             set_cr3(task1.cr3);
 
             // Mise a jour system_tss avec bonne pile kernel pour la prochaine interruption
-            system_tss.s0.esp = (uint32_t)&__kernel_stack_user1_end__; // adresse 0x00c0 2000
+            //system_tss.s0.esp = (uint32_t)&__kernel_stack_user1_end__; // adresse 0x00c0 2000
+            system_tss.s0.esp = (uint32_t)(0x00c00000+STACK_SZ);
             system_tss.s0.ss  = gdt_krn_seg_sel(2);
 
             // SWITCH DEBUG
@@ -197,3 +199,4 @@ uint32_t __regparm__(1) intr_hdlr(int_ctx_t *ctx)
    // IRQ depuis ring0 : pas de switch
    return (uint32_t)ctx;
 }
+
