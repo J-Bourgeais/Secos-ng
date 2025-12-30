@@ -107,6 +107,8 @@ typedef union segment_descriptor
 
 } __attribute__((packed)) seg_desc_t;
 
+
+
 /*
 ** Global descriptor table
 */
