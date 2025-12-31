@@ -16,8 +16,10 @@ Le système repose sur un ordonnanceur préemptif déclenché par l’horloge (I
 
 ## Le code développé se trouve principalement dans les fichiers suivants: 
 - tp.c : initialisation du système (segmentation, TSS, pagination), création des tâches et bascule initiale en Ring 3
-- kernel/core/intr. : gestion des interruptions, IRQ0 et ordonnancement préemptif
+- kernel/core/intr.c : gestion des interruptions, IRQ0 et ordonnancement préemptif
 - task.h : structures de données associées aux tâches (contexte noyau, CR3)
+- kernel/core/idt.s : Gestion du switch
+- utils/linker.lds : configuration de notre mémoire physique.
 
 ## Cartographie mémoire
 La cartographie mémoire complète (adresses physiques, virtuelles, segments GDT et privilèges)
