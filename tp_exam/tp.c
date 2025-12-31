@@ -286,11 +286,11 @@ static inline void cli(void){asm volatile("cli");}
 
 
 void setup_hardware(uint32_t tick_hz) {
-    cli();
+    cli();//empeche interruption pendant la phase d'initialisation (idt et pic pas encore initialises)
     intr_init();
     pic_init();
    
-    // PIT Init
+    // PIT Init (timer)
     uint32_t d = 1193182 / tick_hz;
     out(0x36, 0x43);
     out(d & 0xFF, 0x40);
@@ -323,7 +323,7 @@ void tp() {
     debug("[TP] Pagination activee (CR0.PG=1)\n");
 
 
-    //setup_hardware(50);
+    setup_hardware(50);
     intr_init();//débogger
     debug("[TP] Materiel (PIT/PIC) pret\n");
 
@@ -367,7 +367,7 @@ void tp() {
 
 
     // On active les interruptions juste avant le saut
-    //asm volatile("sti");
+    asm volatile("sti"); //Interrupt Flag = 1
 
 
     //*(volatile uint32_t*)PA_SHARED_PHYS = 42;

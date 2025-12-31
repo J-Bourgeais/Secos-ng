@@ -130,7 +130,6 @@ uint32_t __regparm__(1) intr_hdlr(int_ctx_t *ctx)
 
       // cpl au moment de l'interruption
       uint32_t cpl = ctx->cs.raw & 3;
-
       // esp de la pile noyau courant
       uint32_t kstack_ptr = (uint32_t)ctx;
 
