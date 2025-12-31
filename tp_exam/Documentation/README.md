@@ -9,3 +9,8 @@
     ```bash
    make 
    make qemu
+
+## Le code développé se trouve principalement dans les fichiers suivants: 
+- tp.c
+- kernel/core/intr.c
+- task.h
