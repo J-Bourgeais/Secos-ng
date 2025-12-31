@@ -8,7 +8,6 @@
 #include <../../tp_exam/task.h>
 
 #define STACK_SZ          0x1000
-//#include <../../tp_exam/tp.c>
 
 extern process_t task1;
 extern process_t task2;
@@ -78,7 +77,6 @@ void intr_init()
 
 uint32_t __regparm__(1) intr_hdlr(int_ctx_t *ctx)
 {
-
    /*
    debug("\nIDT event\n"
          " . int    #%d\n"
@@ -137,9 +135,7 @@ uint32_t __regparm__(1) intr_hdlr(int_ctx_t *ctx)
 
       if(cpl == 3){
          //debug("l'interruption a ete declanchee par un user\n");
-
          if (current_task == &task1) {
-
             
             // On sauvegarde le pointeur de pile kernel de user 1 dans sa struct
             task1.kstack_ptr = (uint32_t)ctx;
