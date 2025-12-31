@@ -21,8 +21,8 @@ extern uint32_t __kernel_stack_user1_end__, __kernel_stack_user2_end__;
 
 /* --- Configuration & Macros --- */
 #define SECTION_USER      __attribute__((section(".user")))
-#define PAGE_SZ           4096
-#define STACK_SZ          0x1000
+#define PAGE_SZ           4096 //taille d'une page mémoire (4 K0)
+#define STACK_SZ          0x1000 //taille d'une pile (4 K0)
 
 
 #define VA_SHARED_U1      ((void*)0xb0001000u)
@@ -38,7 +38,7 @@ seg_desc_t gdt_table[11];
 
 /* --- Fonctions Utilisateurs --- */
 
-
+// Tâche 1: incrémentente le compteur partagé en boucle, exécutée en ring 3
 void SECTION_USER user1() {
     volatile uint32_t *cnt = (volatile uint32_t*)VA_SHARED_U1;
     //*cnt=1234;
@@ -51,7 +51,7 @@ void SECTION_USER user1() {
     }
 }
 
-
+//Tâche 2: affiche le compteur via un appel système (int 0x80)
 void SECTION_USER user2() {
     volatile uint32_t *cnt = (volatile uint32_t*)VA_SHARED_U2;
     while (1) {
@@ -63,7 +63,6 @@ void SECTION_USER user2() {
 
 
 /* --- Gestion de la Segmentation --- */
-
 
 static void gdt_entry_init(int idx, uint32_t base, uint32_t limit, uint8_t type, uint8_t dpl) {
     gdt_table[idx].limit_1 = limit & 0xFFFF;
@@ -101,7 +100,7 @@ static void gdt_sys_entry_init(int idx, uint32_t base, uint32_t limit, uint8_t t
 
 
 
-
+//Initialise la GDT et charge les segments noyau
 void setup_segmentation(void) {
     memset(gdt_table, 0, sizeof(gdt_table));
 
@@ -131,7 +130,7 @@ void setup_segmentation(void) {
     set_ss((uint16_t)gdt_krn_seg_sel(9));
 }
 
-
+//Initialise TSS pour le changement de pile lors des interruptions
 void setup_tss(void) {
     memset(&system_tss, 0, sizeof(tss_t));
     //system_tss.iomap=sizeof(tss_t);
@@ -155,7 +154,6 @@ void setup_tss(void) {
 
 
 /* --- Gestion de la Pagination --- */
-
 
 static void map_region_identity(pte32_t *ptb, uint32_t start_frame, uint32_t count, uint32_t flags) {
     for (uint32_t i = 0; i < count; i++) {
@@ -187,7 +185,7 @@ uint32_t create_base_pgd(uint32_t pgd_pa, uint32_t ptb_kern_pa, uint32_t ptb_sta
     return pgd_pa;
 }
 
-
+//Initialise les tables de pages pour Tâche1 et Tâche2 
 void setup_paging(void) {
     // Adresses physiques pour les structures de pagination
     uint32_t u1_pgd = 0x00610000;
@@ -236,13 +234,6 @@ void setup_paging(void) {
     pg_set_entry(&((pde32_t*)u1_pgd)[pd32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(0x616000));
     pg_set_entry(&((pte32_t*)0x616000)[pt32_get_idx(VA_SHARED_U2)], PG_USR | PG_RW, page_get_nr(PA_SHARED_PHYS));
 
-
-
-
-
-
-
-
     task1.cr3 = u1_pgd;
 
 
@@ -272,15 +263,11 @@ void setup_paging(void) {
     pg_set_entry(&((pte32_t*)0x623000)[pt32_get_idx(0x800000)], PG_USR | PG_RW, page_get_nr(0x800000));
     pg_set_entry(&((pde32_t*)u2_pgd)[pd32_get_idx(VA_SHARED_U1)], PG_USR | PG_RW, page_get_nr(0x615000));
 
-
-
-
     task2.cr3 = u2_pgd;
 }
 
 
 /* --- Initialisation Système --- */
-
 
 static inline void cli(void){asm volatile("cli");}
 
@@ -373,18 +360,10 @@ void tp() {
     //*(volatile uint32_t*)PA_SHARED_PHYS = 42;
     //debug("[TP] Compteur force a 42 pour test\n");
 
-
-
-
-
-
     asm volatile(
         "pushl %0; pushl %1; pushl $0x202; pushl %2; pushl %3; iret"
         : : "r"(u_ss), "r"(u_esp), "r"(u_cs), "r"(user1) : "memory"
     );
-
-
- 
 }
 
 
